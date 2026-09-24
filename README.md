@@ -120,9 +120,9 @@
 
 ![C4 Model — Context diagram](docs/images/c4-context-diagram.png)
 
-### C4 Model — Container diagram
+### C4 Model — Conteiner diagram
 
-![C4 Model — Context diagram](docs/images/c4-conteiner-diagram.png)
+![C4 Model — Conteiner diagram](docs/images/c4-conteiner-diagram.png)
 
 ### Контракты API
 
