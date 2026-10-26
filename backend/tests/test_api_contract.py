@@ -1,9 +1,24 @@
 """Тесты контракта API, которым не нужна БД: доставка (заглушка), защита заказов, Swagger."""
+import pytest
 from fastapi.testclient import TestClient
+
+from app.delivery.breaker import CircuitBreaker
+from app.delivery.cache import TTLCache
+from app.delivery.mock import MockDeliveryProvider
+from app.delivery.service import DeliveryService, get_delivery_service
 
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def fresh_delivery_service():
+    """Свежий сервис доставки без БД на каждый тест: общий Circuit Breaker не влияет на соседей."""
+    service = DeliveryService(MockDeliveryProvider(), CircuitBreaker(), TTLCache(60))
+    app.dependency_overrides[get_delivery_service] = lambda: service
+    yield
+    app.dependency_overrides.pop(get_delivery_service, None)
 
 
 def test_delivery_quote_exact_and_fallback():

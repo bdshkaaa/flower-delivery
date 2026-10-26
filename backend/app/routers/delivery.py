@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from ..delivery.service import DeliveryService, get_delivery_service
 from ..schemas import DeliveryQuoteOut, WeightCategory
-from ..stubs import DELIVERY_COST
 
 router = APIRouter(tags=["Доставка"])
 
@@ -11,9 +11,12 @@ router = APIRouter(tags=["Доставка"])
 def delivery_quote(
     address: str = Query(min_length=3, examples=["Санкт-Петербург, Невский пр., 1"]),
     weight_category: WeightCategory = "medium",
+    service: DeliveryService = Depends(get_delivery_service),
 ):
-    # Заглушка. Чтобы фронтенд мог проверить сценарий «API недоступен»,
-    # адрес со словом "fallback" возвращает приблизительную стоимость.
-    if "fallback" in address.lower():
-        return DeliveryQuoteOut(cost=DELIVERY_COST, eta_days=2, approximate=True, source="fallback")
-    return DeliveryQuoteOut(cost=DELIVERY_COST, eta_days=1, approximate=False, source="api")
+    quote, source = service.get_quote(address, weight_category)
+    return DeliveryQuoteOut(
+        cost=quote.cost,
+        eta_days=quote.eta_days,
+        approximate=quote.approximate or source == "fallback",
+        source=source,
+    )

@@ -27,7 +27,8 @@ class MockDeliveryProvider:
 
     def get_quote(self, destination: Destination, weight_category: str) -> DeliveryQuote:
         self.calls += 1
-        if self.failing:
+        # Для ручной проверки «API недоступен»: адрес со словом fallback роняет заглушку
+        if self.failing or "fallback" in destination.address.lower():
             raise ProviderError("mock provider is failing")
         if weight_category not in WEIGHT_CATEGORIES:
             raise ValueError(f"unknown weight category: {weight_category}")
