@@ -9,6 +9,9 @@ export default function Header() {
         <span aria-hidden="true">🌸</span> Flower Delivery
       </a>
       <nav className="header-actions">
+        <a className="nav-link" href="#/catalog">
+          Каталог
+        </a>
         {user ? (
           <>
             <span className="user-name">{user.name}</span>

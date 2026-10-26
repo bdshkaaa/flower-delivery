@@ -14,7 +14,7 @@ function messageFrom(data, status) {
   return "Что-то пошло не так. Попробуйте ещё раз.";
 }
 
-export async function api(path, { method = "GET", body, token } = {}) {
+export async function api(path, { method = "GET", body, token, signal } = {}) {
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -25,8 +25,10 @@ export async function api(path, { method = "GET", body, token } = {}) {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
     });
-  } catch {
+  } catch (err) {
+    if (err.name === "AbortError") throw err;
     throw new ApiError(0, "Нет связи с сервером. Попробуйте позже.");
   }
 
