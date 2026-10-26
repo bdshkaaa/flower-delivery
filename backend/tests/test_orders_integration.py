@@ -1,14 +1,28 @@
-"""Заказы (пока заглушка хранения) на реальных товарах из каталога."""
+"""Заказы на настоящей БД: состав, сумма, доставка, изоляция пользователей."""
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.delivery.breaker import CircuitBreaker
+from app.delivery.cache import TTLCache
+from app.delivery.mock import MockDeliveryProvider
+from app.delivery.service import DeliveryService, get_delivery_service
 from app.main import app
 
 pytestmark = pytest.mark.integration
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def provider():
+    """Свежий сервис доставки без БД-хранилища; провайдер можно «уронить» в тесте."""
+    mock = MockDeliveryProvider()
+    service = DeliveryService(mock, CircuitBreaker(), TTLCache(60))
+    app.dependency_overrides[get_delivery_service] = lambda: service
+    yield mock
+    app.dependency_overrides.pop(get_delivery_service, None)
 
 
 @pytest.fixture()
@@ -34,8 +48,46 @@ def test_create_order_calculates_total_with_delivery(headers, product):
     assert response.status_code == 201
     order = response.json()
     assert order["delivery_cost"] == 450.0
+    assert order["delivery_approximate"] is False
     assert order["total_price"] == pytest.approx(2 * product["price"] + 450.0)
     assert order["items"][0]["name"] == product["name"]
+
+
+def test_order_is_not_blocked_when_delivery_api_fails(headers, product, provider):
+    provider.failing = True
+
+    response = client.post("/orders", headers=headers, json={
+        "items": [{"product_id": product["id"], "quantity": 2}],
+        "delivery_type": "delivery", "address": "Казань, Баумана 1",
+    })
+
+    assert response.status_code == 201
+    order = response.json()
+    assert order["delivery_approximate"] is True
+    assert order["delivery_cost"] == 500.0  # запасной тариф для medium
+    assert order["total_price"] == pytest.approx(2 * product["price"] + 500.0)
+
+
+def test_order_is_saved_and_returned_in_history_with_items(headers, product):
+    created = client.post("/orders", headers=headers, json={
+        "items": [{"product_id": product["id"], "quantity": 3}], "delivery_type": "pickup",
+    }).json()
+
+    history = client.get("/orders", headers=headers).json()
+
+    assert [o["id"] for o in history] == [created["id"]]
+    assert history[0]["items"][0]["quantity"] == 3
+    assert history[0]["items"][0]["name"] == product["name"]
+
+
+def test_user_sees_only_own_orders(headers, product):
+    client.post("/orders", headers=headers, json={
+        "items": [{"product_id": product["id"], "quantity": 1}], "delivery_type": "pickup"})
+    other = client.post("/register", json={
+        "email": f"other-{uuid4().hex[:10]}@example.com", "password": "secret123", "name": "Другой"}
+    ).json()["access_token"]
+
+    assert client.get("/orders", headers={"Authorization": f"Bearer {other}"}).json() == []
 
 
 def test_pickup_order_has_no_delivery_cost(headers, product):

@@ -1,40 +1,57 @@
+import logging
 from decimal import Decimal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from .. import catalog
-from ..schemas import ErrorResponse, OrderCreate, OrderItemOut, OrderOut
-from ..stubs import DELIVERY_COST, STUB_ORDERS, new_order_id, now
+from .. import catalog, orders
+from ..delivery.service import DeliveryService, get_delivery_service
+from ..schemas import ErrorResponse, OrderCreate, OrderOut
 from .auth import require_user
+
+logger = logging.getLogger("app.orders")
 
 router = APIRouter(tags=["Заказы"], dependencies=[Depends(require_user)],
                    responses={401: {"model": ErrorResponse}})
 
 
+def weight_category_for(total_quantity: int) -> str:
+    """Весовая категория заказа для расчёта доставки: 1 букет — light, 2–3 — medium, 4+ — heavy."""
+    if total_quantity <= 1:
+        return "light"
+    return "medium" if total_quantity <= 3 else "heavy"
+
+
 @router.post("/orders", response_model=OrderOut, status_code=status.HTTP_201_CREATED,
              responses={404: {"model": ErrorResponse}}, summary="Создать заказ")
-def create_order(body: OrderCreate):
-    items: list[OrderItemOut] = []
+def create_order(
+    body: OrderCreate,
+    user_id: UUID = Depends(require_user),
+    delivery: DeliveryService = Depends(get_delivery_service),
+):
+    items = []
     for item in body.items:
         product = catalog.get_product(item.product_id)
         if product is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Товар {item.product_id} не найден")
-        items.append(OrderItemOut(product_id=product["id"], name=product["name"],
-                                  quantity=item.quantity, unit_price=product["price"]))
+        items.append({"product_id": product["id"], "quantity": item.quantity,
+                      "unit_price": product["price"]})
 
-    delivery_cost = DELIVERY_COST if body.delivery_type == "delivery" else Decimal("0")
-    total = sum((i.unit_price * i.quantity for i in items), Decimal("0")) + delivery_cost
+    # Доставка не блокирует заказ: сервис всегда отвечает (API -> кэш -> запасной тариф)
+    delivery_cost, approximate = Decimal("0"), False
+    if body.delivery_type == "delivery":
+        quote, source = delivery.get_quote(
+            body.address, weight_category_for(sum(i["quantity"] for i in items)))
+        delivery_cost = quote.cost
+        approximate = quote.approximate or source == "fallback"
+        if approximate:
+            logger.warning("order created with approximate delivery cost (source=%s)", source)
 
-    order = OrderOut(
-        id=new_order_id(), status="created", created_at=now(),
-        delivery_type=body.delivery_type, address=body.address, items=items,
-        delivery_cost=delivery_cost, delivery_approximate=False, total_price=total,
-    )
-    STUB_ORDERS.append(order)
-    return order
+    order_id = orders.create_order(user_id, body.delivery_type, body.address, items,
+                                   delivery_cost, approximate)
+    return orders.get_order(user_id, order_id)
 
 
 @router.get("/orders", response_model=list[OrderOut], summary="История заказов")
-def list_orders():
-    # От новых к старым
-    return sorted(STUB_ORDERS, key=lambda o: o.created_at, reverse=True)
+def list_orders(user_id: UUID = Depends(require_user)):
+    return orders.list_orders(user_id)
