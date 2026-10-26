@@ -10,6 +10,10 @@ class Settings:
     delivery_provider: str
     # Жёсткий таймаут на запрос к внешнему API доставки, секунды (см. README, «Отказоустойчивость»)
     delivery_timeout_seconds: float
+    # Кэш котировок (TTL) и Circuit Breaker
+    delivery_cache_ttl_seconds: float
+    delivery_breaker_threshold: int
+    delivery_breaker_reset_seconds: float
     yandex_delivery_token: str
     yandex_delivery_base_url: str
     # Координаты точки отправления (магазина), долгота и широта
@@ -30,6 +34,9 @@ def load_settings() -> Settings:
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         delivery_provider=os.environ.get("DELIVERY_PROVIDER", "mock"),
         delivery_timeout_seconds=float(os.environ.get("DELIVERY_TIMEOUT_SECONDS", "3")),
+        delivery_cache_ttl_seconds=float(os.environ.get("DELIVERY_CACHE_TTL_SECONDS", "300")),
+        delivery_breaker_threshold=int(os.environ.get("DELIVERY_BREAKER_THRESHOLD", "3")),
+        delivery_breaker_reset_seconds=float(os.environ.get("DELIVERY_BREAKER_RESET_SECONDS", "30")),
         yandex_delivery_token=os.environ.get("YANDEX_DELIVERY_TOKEN", ""),
         yandex_delivery_base_url=os.environ.get(
             "YANDEX_DELIVERY_BASE_URL", "https://b2b.taxi.yandex.net"
