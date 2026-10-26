@@ -15,6 +15,10 @@ class Settings:
     # Координаты точки отправления (магазина), долгота и широта
     shop_lon: float
     shop_lat: float
+    # Секрет для подписи JWT. В продакшене обязательно задать свой через переменную окружения
+    jwt_secret: str
+    # Срок жизни токена доступа, минуты
+    jwt_expire_minutes: int
 
 
 def load_settings() -> Settings:
@@ -32,6 +36,8 @@ def load_settings() -> Settings:
         ),
         shop_lon=float(os.environ.get("SHOP_LON", "30.3141")),
         shop_lat=float(os.environ.get("SHOP_LAT", "59.9386")),
+        jwt_secret=os.environ.get("JWT_SECRET", "dev-only-secret-change-me-in-production-0123456789"),
+        jwt_expire_minutes=int(os.environ.get("JWT_EXPIRE_MINUTES", "1440")),
     )
 
 

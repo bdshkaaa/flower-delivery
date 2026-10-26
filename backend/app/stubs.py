@@ -5,14 +5,6 @@ from uuid import UUID, uuid4
 
 from .schemas import OrderOut
 
-STUB_TOKEN = "stub-token"
-
-STUB_USER = {
-    "id": UUID("00000000-0000-0000-0000-000000000001"),
-    "email": "anna@example.com",
-    "name": "Анна",
-}
-
 STUB_PRODUCTS = [
     {"id": UUID("11111111-1111-1111-1111-000000000001"), "name": "Нежность",
      "category": "birthday", "price": Decimal("2500.00"), "image_url": None, "popularity": 120},

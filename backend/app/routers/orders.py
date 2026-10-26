@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..schemas import ErrorResponse, OrderCreate, OrderItemOut, OrderOut
 from ..stubs import DELIVERY_COST, STUB_ORDERS, STUB_PRODUCTS, new_order_id, now
-from .auth import require_token
+from .auth import require_user
 
-router = APIRouter(tags=["Заказы"], dependencies=[Depends(require_token)],
+router = APIRouter(tags=["Заказы"], dependencies=[Depends(require_user)],
                    responses={401: {"model": ErrorResponse}})
 
 

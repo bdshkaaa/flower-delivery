@@ -12,6 +12,8 @@ x-backend-env: &backend-env
   YANDEX_DELIVERY_TOKEN: ${YANDEX_DELIVERY_TOKEN:-}
   SHOP_LON: ${SHOP_LON:-30.3141}
   SHOP_LAT: ${SHOP_LAT:-59.9386}
+  JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-in-production-0123456789}
+  JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-1440}
 
 services:
   db:
