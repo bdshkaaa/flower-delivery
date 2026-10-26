@@ -16,6 +16,14 @@ jobs:
       - name: Run migrations and tests
         run: docker compose run --rm --build tests
 
+      # Unit-тесты фронтенда: встроенный раннер Node, зависимости не нужны
+      - name: Frontend unit tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm test
+        working-directory: frontend
+
       - name: Build frontend image
         run: docker compose build frontend
 
