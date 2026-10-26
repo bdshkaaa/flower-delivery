@@ -18,12 +18,16 @@ export default function HomePage() {
       <p className="lead">
         Выберите букет к любому поводу и сразу увидите стоимость и срок доставки до оплаты.
       </p>
-      {!user && (
-        <a className="btn btn-primary btn-large" href="#/login">
-          Войти или зарегистрироваться
+      <div className="hero-actions">
+        <a className="btn btn-primary btn-large" href="#/catalog">
+          Смотреть каталог
         </a>
-      )}
-      <p className="soon">Каталог букетов появится в следующих версиях.</p>
+        {!user && (
+          <a className="btn btn-ghost btn-large" href="#/login">
+            Войти
+          </a>
+        )}
+      </div>
       <p className={`status status-${backend}`}>
         Сервер:{" "}
         {backend === "checking" ? "проверяем…" : backend === "ok" ? "работает" : "недоступен"}
