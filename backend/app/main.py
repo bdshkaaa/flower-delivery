@@ -7,11 +7,21 @@ from sqlalchemy import text
 from .config import settings
 from .db import engine
 from .logging_setup import setup_logging
+from .routers import auth, delivery, goods, orders
 
 setup_logging(settings.log_level)
 logger = logging.getLogger("app")
 
-app = FastAPI(title="Flower Delivery API")
+app = FastAPI(
+    title="Flower Delivery API",
+    description="Контракт API сервиса доставки цветов. Пока эндпоинты возвращают "
+    "тестовые данные (заглушки), чтобы frontend мог работать параллельно с backend.",
+)
+
+app.include_router(auth.router)
+app.include_router(goods.router)
+app.include_router(delivery.router)
+app.include_router(orders.router)
 
 
 @app.middleware("http")
