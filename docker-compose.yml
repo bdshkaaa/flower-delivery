@@ -1,0 +1,72 @@
+# Запуск всего проекта одной командой:  docker compose up --build
+#
+# Порядок: БД -> миграции -> backend, frontend и тесты.
+# Значения по умолчанию заданы прямо здесь (${VAR:-default}), поэтому проект
+# запускается на чистой машине без файла .env.
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-flower}:${POSTGRES_PASSWORD:-flower}@db:5432/${POSTGRES_DB:-flower_delivery}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  DELIVERY_PROVIDER: ${DELIVERY_PROVIDER:-mock}
+  DELIVERY_TIMEOUT_SECONDS: ${DELIVERY_TIMEOUT_SECONDS:-3}
+  YANDEX_DELIVERY_TOKEN: ${YANDEX_DELIVERY_TOKEN:-}
+  SHOP_LON: ${SHOP_LON:-30.3141}
+  SHOP_LAT: ${SHOP_LAT:-59.9386}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flower}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flower}
+      POSTGRES_DB: ${POSTGRES_DB:-flower_delivery}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-flower} -d ${POSTGRES_DB:-flower_delivery}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Накатывает миграции и завершается
+  migrate:
+    build: ./backend
+    command: alembic upgrade head
+    environment: *backend-env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    image: flower-delivery-backend:ci
+    ports:
+      - "8000:8000"
+    environment: *backend-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build: ./frontend
+    image: flower-delivery-frontend:ci
+    ports:
+      - "3000:8080"
+    depends_on:
+      - backend
+
+  # Unit- и интеграционные тесты: запускаются один раз, отчёт печатается в консоль
+  # и сохраняется в ./reports/report.xml
+  tests:
+    build: ./backend
+    command: pytest -v --junitxml=/reports/report.xml
+    user: "0:0"  # чтобы писать отчёт в смонтированную папку ./reports
+    environment: *backend-env
+    volumes:
+      - ./reports:/reports
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  db_data:

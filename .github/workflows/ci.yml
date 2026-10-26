@@ -1,0 +1,32 @@
+name: CI
+
+# Сборка и тесты при каждом пуше и при каждом pull request
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Поднимает БД, накатывает миграции, собирает backend и запускает все тесты
+      - name: Run migrations and tests
+        run: docker compose run --rm --build tests
+
+      - name: Build frontend image
+        run: docker compose build frontend
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: reports/
+          if-no-files-found: ignore
+
+      - name: Stop containers
+        if: always()
+        run: docker compose down -v
