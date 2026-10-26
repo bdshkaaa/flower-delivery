@@ -1,0 +1,53 @@
+name: Security
+
+# Сканирование Trivy: при каждом пуше и PR, а также раз в неделю —
+# новые уязвимости в старых зависимостях появляются и без изменений кода.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 5 * * 1"
+
+permissions:
+  contents: read
+  security-events: write   # загрузка результатов во вкладку Security
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Скрипт запускает Trivy в Docker-контейнере (тот же вызов работает локально)
+      - name: Trivy scan (dependencies, secrets, configs, images)
+        run: ./scripts/trivy-scan.sh
+
+      - name: Upload SARIF (files and configs)
+        if: always() && hashFiles('reports/trivy/repo.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/trivy/repo.sarif
+          category: trivy-repo
+
+      - name: Upload SARIF (backend image)
+        if: always() && hashFiles('reports/trivy/backend-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/trivy/backend-image.sarif
+          category: trivy-backend-image
+
+      - name: Upload SARIF (frontend image)
+        if: always() && hashFiles('reports/trivy/frontend-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/trivy/frontend-image.sarif
+          category: trivy-frontend-image
+
+      - name: Upload Trivy reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: reports/trivy/
+          if-no-files-found: ignore
