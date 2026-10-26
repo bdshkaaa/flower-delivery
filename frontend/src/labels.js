@@ -26,3 +26,22 @@ const priceFormat = new Intl.NumberFormat("ru-RU", {
 export function formatPrice(value) {
   return priceFormat.format(value);
 }
+
+// Весовая категория заказа для расчёта доставки. Правило то же, что на сервере:
+// 1 букет — light, 2–3 — medium, 4 и больше — heavy
+export function weightCategoryFor(totalQuantity) {
+  if (totalQuantity <= 1) return "light";
+  return totalQuantity <= 3 ? "medium" : "heavy";
+}
+
+export function pluralDays(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${n} день`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} дня`;
+  return `${n} дней`;
+}
+
+export function orderStatusLabel(status) {
+  return { created: "Создан", paid: "Оплачен", delivered: "Доставлен", cancelled: "Отменён" }[status] ?? status;
+}
