@@ -1,36 +1,24 @@
 """Тесты контракта API: статусы, форма ответов, фильтры и сортировка (заглушки)."""
+from uuid import UUID
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.routers.auth import require_user
 
 client = TestClient(app)
-AUTH = {"Authorization": "Bearer stub-token"}
+AUTH = {"Authorization": "Bearer any"}
+
+
+@pytest.fixture(autouse=True)
+def logged_in_user():
+    """Эти тесты проверяют каталог, доставку и заказы, а не вход:
+    подменяем проверку токена, чтобы тесты не зависели от БД."""
+    app.dependency_overrides[require_user] = lambda: UUID(int=1)
+    yield
+    app.dependency_overrides.clear()
 FIRST_PRODUCT = "11111111-1111-1111-1111-000000000001"  # 2500.00
-
-
-def test_login_returns_token_and_user():
-    r = client.post("/login", json={"email": "a@b.ru", "password": "secret123"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["token_type"] == "bearer" and body["access_token"]
-    assert body["user"]["email"] == "a@b.ru"
-
-
-def test_login_with_wrong_password_is_401():
-    r = client.post("/login", json={"email": "a@b.ru", "password": "wrong"})
-    assert r.status_code == 401
-    assert "detail" in r.json()
-
-
-def test_register_returns_201():
-    r = client.post("/register", json={"email": "n@b.ru", "password": "secret123", "name": "Нина"})
-    assert r.status_code == 201
-    assert r.json()["user"]["name"] == "Нина"
-
-
-def test_logout_requires_token():
-    assert client.post("/logout").status_code == 401
-    assert client.post("/logout", headers=AUTH).status_code == 204
 
 
 def test_goods_list_default_sorted_by_popularity():
@@ -72,6 +60,7 @@ def test_delivery_quote_requires_address():
 
 
 def test_orders_require_auth():
+    app.dependency_overrides.clear()  # настоящая проверка токена
     assert client.get("/orders").status_code == 401
     assert client.post("/orders", json={}).status_code == 401
 

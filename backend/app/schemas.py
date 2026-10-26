@@ -21,15 +21,18 @@ class ErrorResponse(BaseModel):
 
 
 # ---------- Авторизация ----------
+EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+
+
 class RegisterRequest(BaseModel):
-    email: str = Field(examples=["anna@example.com"])
-    password: str = Field(min_length=6, examples=["secret123"])
-    name: str = Field(examples=["Анна"])
+    email: str = Field(pattern=EMAIL_PATTERN, max_length=255, examples=["anna@example.com"])
+    password: str = Field(min_length=6, max_length=128, examples=["secret123"])
+    name: str = Field(min_length=1, max_length=255, examples=["Анна"])
 
 
 class LoginRequest(BaseModel):
-    email: str = Field(examples=["anna@example.com"])
-    password: str = Field(examples=["secret123"])
+    email: str = Field(max_length=255, examples=["anna@example.com"])
+    password: str = Field(max_length=128, examples=["secret123"])
 
 
 class UserOut(BaseModel):
