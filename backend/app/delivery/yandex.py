@@ -1,31 +1,36 @@
-"""Адаптер Яндекс Доставки.
+"""Адаптер Яндекс Доставки (метод предварительной оценки без создания заявки).
 
-ВАЖНО: этот файл НЕ проверен на реальном токене.
-Проверено по документации: базовый адрес https://b2b.taxi.yandex.net и авторизация
-заголовком `Authorization: Bearer <токен>`. Токен выдаётся в личном кабинете
-Яндекс Доставки (вкладка «Интеграции») по учётным данным от менеджера Яндекс Доставки.
+Сверено с документацией (раздел «Предварительная оценка без создания заявки»):
+POST {base_url}/b2b/cargo/integration/v2/check-price, заголовок `Authorization: Bearer <токен>`.
+Ответ: `price` (строка, например "12.50"), `currency_rules.code` («RUB»), `eta` (минуты),
+`distance_meters`. Ошибки: 400 (`bad_request`/`address_not_found`), 409 (нет подходящих
+курьеров), 429 (слишком много запросов).
 
-Путь метода и формат тела запроса взяты из обсуждения на форуме (метод check-price),
-а структура ответа в источниках не приводилась. Поэтому разбор ответа ниже написан
-осторожно, и первым делом после получения токена нужно сверить его с актуальной
-документацией и поправить `_parse_response`. Остальной код от этого не зависит."""
+ВАЖНО: на реальном токене адаптер ещё не запускался — только на тестах с подменой сети.
+Токен выдаётся в личном кабинете Яндекс Доставки (вкладка «Интеграции»). После получения
+токена нужен один ручной запрос (см. README, этап «Проверка адаптера»)."""
 
 import logging
+import math
 from decimal import Decimal, InvalidOperation
+from typing import Optional
 
 import httpx
 
 from .base import (
     WEIGHT_CATEGORIES,
+    BadAddressError,
     DeliveryQuote,
     Destination,
     ProviderError,
 )
+from .geocoder import NominatimGeocoder
 
 logger = logging.getLogger("app.delivery.yandex")
 
 # Примерный вес букета по категории, кг
 _WEIGHT_KG = {"light": 1.0, "medium": 2.0, "heavy": 4.0}
+_MINUTES_IN_DAY = 24 * 60
 
 
 class YandexDeliveryProvider:
@@ -36,6 +41,8 @@ class YandexDeliveryProvider:
         shop_lon: float,
         shop_lat: float,
         timeout_seconds: float,
+        geocoder: Optional[NominatimGeocoder] = None,
+        client: Optional[httpx.Client] = None,
     ) -> None:
         if not token:
             raise ValueError("YANDEX_DELIVERY_TOKEN is not set")
@@ -43,13 +50,16 @@ class YandexDeliveryProvider:
         self._base_url = base_url.rstrip("/")
         self._shop = (shop_lon, shop_lat)
         self._timeout = timeout_seconds
+        self._geocoder = geocoder or NominatimGeocoder(timeout_seconds=timeout_seconds)
+        self._client = client or httpx.Client()
 
     def get_quote(self, destination: Destination, weight_category: str) -> DeliveryQuote:
         if weight_category not in WEIGHT_CATEGORIES:
             raise ValueError(f"unknown weight category: {weight_category}")
-        if destination.lon is None or destination.lat is None:
-            # Геокодирование адреса в координаты — отдельная задача (Issue)
-            raise ProviderError("destination coordinates are required")
+
+        lon, lat = destination.lon, destination.lat
+        if lon is None or lat is None:
+            lon, lat = self._geocoder.geocode(destination.address)
 
         body = {
             "items": [
@@ -57,33 +67,52 @@ class YandexDeliveryProvider:
                     "quantity": 1,
                     "size": {"length": 0.4, "width": 0.3, "height": 0.4},
                     "weight": _WEIGHT_KG[weight_category],
+                    "pickup_point": 1,
+                    "dropoff_point": 2,
                 }
             ],
             "route_points": [
-                {"coordinates": list(self._shop)},
-                {"coordinates": [destination.lon, destination.lat]},
+                {"id": 1, "coordinates": list(self._shop)},
+                {"id": 2, "coordinates": [lon, lat], "fullname": destination.address},
             ],
+            "requirements": {"taxi_class": "courier"},
         }
-        url = f"{self._base_url}/b2b/cargo/integration/v1/check-price"
         headers = {"Authorization": f"Bearer {self._token}", "Accept-Language": "ru"}
 
         try:
-            response = httpx.post(
-                url, json=body, headers=headers, timeout=self._timeout
+            response = self._client.post(
+                f"{self._base_url}/b2b/cargo/integration/v2/check-price",
+                json=body, headers=headers, timeout=self._timeout,
             )
-            response.raise_for_status()
-            payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+        except httpx.HTTPError as exc:
             logger.warning("yandex delivery request failed: %s", exc)
             raise ProviderError(str(exc)) from exc
+
+        if response.status_code == 400 and "address_not_found" in response.text:
+            raise BadAddressError("yandex: address_not_found")
+        if response.status_code != 200:
+            logger.warning("yandex delivery returned %s: %s", response.status_code, response.text[:200])
+            raise ProviderError(f"yandex returned HTTP {response.status_code}")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ProviderError("yandex returned invalid JSON") from exc
 
         return self._parse_response(payload)
 
     @staticmethod
     def _parse_response(payload: dict) -> DeliveryQuote:
-        # TODO: сверить с актуальной документацией, когда будет токен
         try:
-            cost = Decimal(str(payload["price"]))
-        except (KeyError, InvalidOperation) as exc:
+            cost = Decimal(str(payload["price"])).quantize(Decimal("0.01"))
+            currency = payload["currency_rules"]["code"]
+            eta_minutes = payload.get("eta")
+        except (KeyError, TypeError, InvalidOperation) as exc:
             raise ProviderError(f"unexpected response shape: {payload!r}") from exc
-        return DeliveryQuote(cost=cost, eta_days=1)
+        if currency != "RUB":
+            raise ProviderError(f"unexpected currency: {currency}")
+        if cost <= 0:
+            raise ProviderError(f"non-positive price: {cost}")
+
+        # eta у Яндекса в минутах, а нам нужны дни: округляем вверх, минимум 1
+        eta_days = max(1, math.ceil(eta_minutes / _MINUTES_IN_DAY)) if isinstance(eta_minutes, (int, float)) else 1
+        return DeliveryQuote(cost=cost, eta_days=eta_days)

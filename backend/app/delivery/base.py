@@ -13,6 +13,11 @@ class ProviderError(Exception):
     первая задача для backend после скелета)."""
 
 
+class BadAddressError(ProviderError):
+    """Адрес не найден. Это ошибка ввода покупателя, а не сбой сервиса,
+    поэтому Circuit Breaker её не считает."""
+
+
 @dataclass(frozen=True)
 class Destination:
     """Куда везём. region_key — ключ региона для кэша котировок (например, «spb»),
