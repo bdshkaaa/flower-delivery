@@ -1,9 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { MAX_QUANTITY, useCart } from "../cart.jsx";
 import { categoryLabel, formatPrice } from "../labels.js";
 import ProductImage from "./ProductImage.jsx";
 
 export default function ProductModal({ product, onClose }) {
   const closeRef = useRef(null);
+  const { add } = useCart();
+  const [quantity, setQuantity] = useState(1);
+  const [added, setAdded] = useState(false);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -29,7 +33,31 @@ export default function ProductModal({ product, onClose }) {
           <h2 id="modal-title">{product.name}</h2>
           {product.description && <p className="modal-description">{product.description}</p>}
           <p className="modal-price">{formatPrice(product.price)}</p>
-          <p className="modal-note">Оформление заказа появится в следующей версии.</p>
+          <div className="modal-buy">
+            <div className="stepper" role="group" aria-label="Количество">
+              <button type="button" onClick={() => setQuantity((q) => Math.max(1, q - 1))} aria-label="Меньше">
+                −
+              </button>
+              <span aria-live="polite">{quantity}</span>
+              <button type="button" onClick={() => setQuantity((q) => Math.min(MAX_QUANTITY, q + 1))} aria-label="Больше">
+                +
+              </button>
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                add(product, quantity);
+                setAdded(true);
+              }}
+            >
+              В корзину
+            </button>
+          </div>
+          {added && (
+            <p className="modal-added" role="status">
+              Добавлено в корзину. <a href="#/cart" onClick={onClose}>Перейти в корзину</a>
+            </p>
+          )}
         </div>
       </div>
     </div>
