@@ -54,6 +54,7 @@ class Product(BaseModel):
     category: str = Field(description="Повод: birthday, wedding, anniversary, ...")
     price: Money
     image_url: str | None = None
+    description: str | None = None
     popularity: int = Field(description="Сколько раз букет заказывали (для сортировки)")
 
 
