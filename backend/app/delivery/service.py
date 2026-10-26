@@ -8,7 +8,7 @@ from functools import lru_cache
 from typing import Optional
 
 from ..config import settings
-from .base import DeliveryProvider, DeliveryQuote, Destination, ProviderError
+from .base import BadAddressError, DeliveryProvider, DeliveryQuote, Destination, ProviderError
 from .breaker import CircuitBreaker
 from .cache import TTLCache
 from .factory import get_provider
@@ -54,6 +54,9 @@ class DeliveryService:
         if self.breaker.allow_request():
             try:
                 quote = self.provider.get_quote(Destination(region_key=region, address=address), weight_category)
+            except BadAddressError as exc:
+                # Опечатка в адресе — не сбой сервиса: breaker не трогаем
+                logger.info("delivery address not found: %s", exc)
             except ProviderError as exc:
                 self.breaker.record_failure()
                 logger.warning("delivery api failed: %s", exc)
