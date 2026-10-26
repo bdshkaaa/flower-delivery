@@ -63,12 +63,17 @@ services:
     build: ./backend
     command: pytest -v --junitxml=/reports/report.xml
     user: "0:0"  # чтобы писать отчёт в смонтированную папку ./reports
-    environment: *backend-env
+    environment:
+      <<: *backend-env
+      # E2E-тест ходит на frontend (nginx), который проксирует /api на backend
+      E2E_BASE_URL: http://frontend:8080/api
     volumes:
       - ./reports:/reports
     depends_on:
       migrate:
         condition: service_completed_successfully
+      frontend:
+        condition: service_started
 
 volumes:
   db_data:
