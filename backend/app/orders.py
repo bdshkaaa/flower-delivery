@@ -8,7 +8,13 @@ from .db import engine
 
 ORDER_COLUMNS = (
     "id, status, created_at, delivery_type, address, "
-    "delivery_cost, delivery_service, delivery_approximate, total_price"
+    "delivery_cost, delivery_service, delivery_approximate, total_price, "
+    "recipient_name, recipient_phone, private_house, apartment, entrance, floor, intercom, courier_comment"
+)
+
+DETAIL_FIELDS = (
+    "recipient_name", "recipient_phone", "private_house", "apartment", "entrance", "floor", "intercom",
+    "courier_comment",
 )
 
 
@@ -20,19 +26,26 @@ def create_order(
     delivery_cost: Decimal,
     delivery_approximate: bool,
     delivery_service: str | None = None,
+    details: dict | None = None,
 ) -> UUID:
     """Создаёт заказ и его состав одной транзакцией: либо всё, либо ничего.
     items: [{product_id, quantity, unit_price}]"""
+    details = {k: (details or {}).get(k) for k in DETAIL_FIELDS}
+    details["private_house"] = bool(details["private_house"])
     goods_total = sum((i["unit_price"] * i["quantity"] for i in items), Decimal("0"))
     with engine.begin() as conn:
         order_id = conn.execute(
             text(
                 "INSERT INTO orders (user_id, delivery_type, address, total_price, "
-                "delivery_cost, delivery_approximate, delivery_service) "
-                "VALUES (:u, :t, :a, :total, :dc, :da, :ds) RETURNING id"
+                "delivery_cost, delivery_approximate, delivery_service, "
+                "recipient_name, recipient_phone, private_house, apartment, entrance, floor, intercom, "
+                "courier_comment) "
+                "VALUES (:u, :t, :a, :total, :dc, :da, :ds, "
+                ":recipient_name, :recipient_phone, :private_house, :apartment, :entrance, :floor, :intercom, "
+                ":courier_comment) RETURNING id"
             ),
             {"u": user_id, "t": delivery_type, "a": address, "total": goods_total + delivery_cost,
-             "dc": delivery_cost, "da": delivery_approximate, "ds": delivery_service},
+             "dc": delivery_cost, "da": delivery_approximate, "ds": delivery_service, **details},
         ).scalar_one()
         for item in items:
             conn.execute(

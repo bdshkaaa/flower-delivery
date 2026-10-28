@@ -90,7 +90,7 @@ def test_geo_search_returns_places():
 
     body = client.get("/geo/search", params={"q": "Полюстровский 14"}).json()
 
-    assert body == [{"label": "Полюстровский проспект 14А, Санкт-Петербург", "lat": 59.96, "lon": 30.39, "country_code": "ru"}]
+    assert body == [{"label": "Полюстровский проспект 14А, Санкт-Петербург", "lat": 59.96, "lon": 30.39, "country_code": "ru", "precise": True}]
 
 
 def test_geo_search_validates_query_length():

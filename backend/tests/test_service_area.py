@@ -129,3 +129,65 @@ def test_suggestions_outage_raises_provider_error():
     s, _ = suggester({}, status=503)
     with pytest.raises(ProviderError):
         s.search("Невский")
+
+
+# ---- DaData ----
+from app.delivery.geocoder import DadataSuggester  # noqa: E402
+
+
+def dadata(payload, status=200):
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(status, json=payload)
+
+    s = DadataSuggester("tok", SHOP, 100.0, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    return s, seen
+
+
+def item(value, lat, lon, house="14"):
+    return {"value": value, "data": {"geo_lat": lat, "geo_lon": lon, "house": house}}
+
+
+def test_dadata_returns_real_addresses_with_house_numbers_inside_the_zone():
+    s, seen = dadata({"suggestions": [
+        item("г Санкт-Петербург, Полюстровский пр-кт, д 14 литера А", "59.9590", "30.4150"),
+        item("г Москва, Тверская ул, д 1", "55.76", "37.61"),
+        item("г Санкт-Петербург, Полюстровский пр-кт", "59.96", "30.41", house=None),
+        {"value": "без координат", "data": {"geo_lat": None, "geo_lon": None}},
+    ]})
+
+    places = s.search("Полюстровский 14")
+
+    assert [p.label for p in places] == [
+        "г Санкт-Петербург, Полюстровский пр-кт, д 14 литера А", "г Санкт-Петербург, Полюстровский пр-кт"]
+    assert [p.precise for p in places] == [True, False]
+    request = seen[0]
+    assert request.headers["Authorization"] == "Token tok" and request.method == "POST"
+    body = __import__("json").loads(request.content)
+    assert body["query"] == "Полюстровский 14" and {"kladr_id": "7800000000000"} in body["locations"]
+
+
+def test_dadata_errors_and_missing_token():
+    s, _ = dadata({}, status=403)
+    with pytest.raises(ProviderError):
+        s.search("Невский")
+    with pytest.raises(ValueError):
+        DadataSuggester("", SHOP, 100.0)
+
+
+def test_dadata_is_used_only_when_token_is_set(monkeypatch):
+    from app import config
+    from app.delivery import geocoder
+
+    geocoder.get_suggester.cache_clear()
+    base = config.settings
+    from dataclasses import replace
+
+    monkeypatch.setattr(config, "settings", replace(base, dadata_token="tok"))
+    assert isinstance(geocoder.get_suggester(), DadataSuggester)
+    geocoder.get_suggester.cache_clear()
+    monkeypatch.setattr(config, "settings", replace(base, dadata_token=""))
+    assert isinstance(geocoder.get_suggester(), PhotonSuggester)
+    geocoder.get_suggester.cache_clear()

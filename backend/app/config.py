@@ -28,6 +28,12 @@ class Settings:
     delivery_radius_km: float
     # Подсказки адресов (Photon, на базе OpenStreetMap)
     photon_base_url: str
+    # Адрес магазина текстом (нужен службам, которые считают по адресам)
+    shop_address: str
+    dostavista_token: str
+    dostavista_base_url: str
+    # Токен DaData для подсказок адресов с номерами домов (без него работает Photon)
+    dadata_token: str
     # Секрет для подписи JWT. В продакшене обязательно задать свой через переменную окружения
     jwt_secret: str
     # Срок жизни токена доступа, минуты
@@ -57,6 +63,10 @@ def load_settings() -> Settings:
         # Магазин: Санкт-Петербург, Полюстровский проспект, 14А (координаты приблизительные)
         shop_lon=float(os.environ.get("SHOP_LON", "30.4150")),
         shop_lat=float(os.environ.get("SHOP_LAT", "59.9590")),
+        shop_address=os.environ.get("SHOP_ADDRESS", "Санкт-Петербург, Полюстровский проспект, 14А"),
+        dostavista_token=os.environ.get("DOSTAVISTA_TOKEN", ""),
+        dostavista_base_url=os.environ.get("DOSTAVISTA_BASE_URL", "https://robot.dostavista.ru/api/business/1.6"),
+        dadata_token=os.environ.get("DADATA_TOKEN", ""),
         delivery_radius_km=float(os.environ.get("DELIVERY_RADIUS_KM", "100")),
         photon_base_url=os.environ.get("PHOTON_BASE_URL", "https://photon.komoot.io"),
         jwt_secret=os.environ.get("JWT_SECRET", "dev-only-secret-change-me-in-production-0123456789"),

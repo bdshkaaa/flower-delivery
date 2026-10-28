@@ -14,6 +14,10 @@ x-backend-env: &backend-env
   CDEK_CLIENT_SECRET: ${CDEK_CLIENT_SECRET:-}
   CDEK_BASE_URL: ${CDEK_BASE_URL:-https://api.cdek.ru}
   CDEK_FROM_CODE: ${CDEK_FROM_CODE:-137}
+  DOSTAVISTA_TOKEN: ${DOSTAVISTA_TOKEN:-}
+  DOSTAVISTA_BASE_URL: ${DOSTAVISTA_BASE_URL:-https://robot.dostavista.ru/api/business/1.6}
+  DADATA_TOKEN: ${DADATA_TOKEN:-}
+  SHOP_ADDRESS: ${SHOP_ADDRESS:-Санкт-Петербург, Полюстровский проспект, 14А}
   SHOP_LON: ${SHOP_LON:-30.4150}
   SHOP_LAT: ${SHOP_LAT:-59.9590}
   DELIVERY_RADIUS_KM: ${DELIVERY_RADIUS_KM:-100}

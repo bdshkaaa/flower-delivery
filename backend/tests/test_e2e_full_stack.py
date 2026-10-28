@@ -13,6 +13,7 @@ import pytest
 BASE_URL = os.environ.get("E2E_BASE_URL")
 PROVIDERS = os.environ.get("DELIVERY_PROVIDERS", "courier").split(",")
 MOCK_PROVIDER = PROVIDERS == ["mock"]
+DETAILS = {"recipient_name": "Анна", "recipient_phone": "+7 900 123-45-67", "apartment": "12"}
 
 pytestmark = [
     pytest.mark.e2e,
@@ -61,7 +62,7 @@ def test_customer_journey_catalog_to_order_history(http):
     # 4. Заказ с доставкой: сумма = букеты + доставка
     created = http.post("/orders", headers=headers, json={
         "items": [{"product_id": bouquet["id"], "quantity": 2}],
-        "delivery_type": "delivery", "address": "Санкт-Петербург, Невский проспект 1", "delivery_option_id": chosen["id"],
+        "delivery_type": "delivery", "address": "Санкт-Петербург, Невский проспект 1", **DETAILS, "delivery_option_id": chosen["id"],
     })
     assert created.status_code == 201
     order = created.json()
@@ -86,7 +87,7 @@ def test_order_is_created_when_delivery_service_is_down(http):
     # Адрес со словом fallback «роняет» заглушку API доставки
     response = http.post("/orders", headers={"Authorization": f"Bearer {token}"}, json={
         "items": [{"product_id": bouquet["id"], "quantity": 1}],
-        "delivery_type": "delivery", "address": "Гатчина, fallback 1",
+        "delivery_type": "delivery", "address": "Гатчина, fallback 1", **DETAILS,
     })
 
     assert response.status_code == 201
@@ -103,7 +104,7 @@ def test_delivery_to_unserved_place_is_unavailable_and_order_is_rejected(http):
     token = http.post("/register", json={"email": email, "password": "secret123", "name": "Ева"}).json()["access_token"]
     bouquet = http.get("/goods").json()["items"][0]
     rejected = http.post("/orders", headers={"Authorization": f"Bearer {token}"}, json={
-        "items": [{"product_id": bouquet["id"], "quantity": 1}], "delivery_type": "delivery", "address": address})
+        "items": [{"product_id": bouquet["id"], "quantity": 1}], "delivery_type": "delivery", "address": address, **DETAILS})
     assert rejected.status_code == 422
 
 
