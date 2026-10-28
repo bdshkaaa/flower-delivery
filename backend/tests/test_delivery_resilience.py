@@ -1,16 +1,20 @@
-"""Unit-тесты отказоустойчивости доставки: Circuit Breaker, TTL-кэш, запасной тариф. БД не нужна."""
+"""Unit-тесты отказоустойчивости доставки: Circuit Breaker, TTL-кэш, несколько служб,
+недоступность доставки, запасной тариф. БД не нужна."""
 from decimal import Decimal
 
-from app.delivery.base import DeliveryQuote
+import pytest
+
+from app.delivery.base import BadAddressError, DeliveryOption, NotServiceable, ProviderError
 from app.delivery.breaker import CLOSED, HALF_OPEN, OPEN, CircuitBreaker
 from app.delivery.cache import TTLCache
-from app.delivery.mock import MockDeliveryProvider
 from app.delivery.service import (
+    ADDRESS_NOT_FOUND,
     FALLBACK_ETA_DAYS,
     FALLBACK_TARIFF,
     DeliveryService,
-    region_key_from_address,
+    region_key,
 )
+from tests.fakes import ScriptedProvider, option
 
 
 class FakeClock:
@@ -26,26 +30,22 @@ class MemoryStore:
 
     def __init__(self, latest=None):
         self.saved = []
-        self._latest = latest
+        self._latest = latest or []
 
-    def save(self, region, weight, quote):
-        self.saved.append((region, weight, quote))
+    def save(self, region, weight, options):
+        self.saved.append((region, weight, options))
 
     def latest(self, region, weight):
         return self._latest
 
 
-def make_service(provider=None, store=None, clock=None, threshold=3, ttl=60):
-    clock = clock or FakeClock()
-    return (
-        DeliveryService(
-            provider or MockDeliveryProvider(),
-            CircuitBreaker(threshold, 30, clock),
-            TTLCache(ttl, clock),
-            store,
-        ),
-        clock,
+def make_service(*providers, store=None, ttl=60, threshold=3):
+    clock = FakeClock()
+    service = DeliveryService(
+        list(providers), TTLCache(ttl, clock), store,
+        breaker_threshold=threshold, breaker_reset_seconds=30, breaker_clock=clock,
     )
+    return service, clock
 
 
 # ---- Circuit Breaker ----
@@ -91,59 +91,146 @@ def test_cache_expires_after_ttl():
     assert cache.get(("spb", "light")) is None
 
 
-# ---- Сервис ----
+# ---- Ключ региона ----
 def test_region_key_is_first_part_of_address():
-    assert region_key_from_address("Москва, Тверская 1") == "москва"
-    assert region_key_from_address("  ") == "unknown"
+    assert region_key("Москва, Тверская 1") == "москва"
+    assert region_key("  ") == "unknown"
 
 
-def test_live_quote_is_cached_and_saved():
+def test_region_key_for_map_point_is_one_km_cell():
+    assert region_key("любой адрес", 59.9386, 30.3141) == "59.94,30.31"
+
+
+# ---- Несколько служб ----
+def test_options_of_all_providers_are_merged_and_sorted_by_cost():
+    a = ScriptedProvider("a", [option("a:std", "900.00", 3), option("a:fast", "1500.00", 1)])
+    b = ScriptedProvider("b", [option("b:std", "600.00", 2)])
+    service, _ = make_service(a, b)
+
+    result = service.get_options("Москва, 1", "medium")
+
+    assert result.available and result.source == "api"
+    assert [o.id for o in result.options] == ["b:std", "a:std", "a:fast"]
+
+
+def test_one_failing_provider_does_not_hide_others():
+    good = ScriptedProvider("good")
+    bad = ScriptedProvider("bad", ProviderError("down"))
+    service, _ = make_service(bad, good)
+
+    result = service.get_options("Москва, 1", "light")
+
+    assert result.available and [o.id for o in result.options] == ["good:std"]
+
+
+def test_live_options_are_cached_and_saved():
     store = MemoryStore()
-    provider = MockDeliveryProvider()
-    service, _ = make_service(provider, store)
+    provider = ScriptedProvider("a")
+    service, _ = make_service(provider, store=store)
 
-    quote, source = service.get_quote("Москва, Тверская 1", "medium")
-    assert source == "api" and quote.cost == Decimal("450.00") and not quote.approximate
-    assert len(store.saved) == 1
+    first = service.get_options("Москва, Тверская 1", "medium")
+    second = service.get_options("Москва, Арбат 5", "medium")  # тот же регион и вес
 
-    _, source = service.get_quote("Москва, Арбат 5", "medium")  # тот же регион и вес
-    assert source == "cache"
-    assert provider.calls == 1
+    assert first.source == "api" and second.source == "cache"
+    assert provider.calls == 1 and len(store.saved) == 1
 
 
-def test_cache_expires_and_provider_is_called_again():
-    provider = MockDeliveryProvider()
+def test_cache_expires_and_providers_are_called_again():
+    provider = ScriptedProvider("a")
     service, clock = make_service(provider, ttl=60)
-    service.get_quote("Москва, 1", "light")
+    service.get_options("Москва, 1", "light")
     clock.now = 61
-    _, source = service.get_quote("Москва, 1", "light")
-    assert source == "api" and provider.calls == 2
+    service.get_options("Москва, 1", "light")
+    assert provider.calls == 2
 
 
-def test_failing_api_uses_last_db_quote():
-    old = DeliveryQuote(cost=Decimal("480.00"), eta_days=2, approximate=True)
-    service, _ = make_service(MockDeliveryProvider(failing=True), MemoryStore(latest=old))
+# ---- Сбои и запасные варианты ----
+def test_all_providers_down_uses_last_known_options_from_db():
+    old = DeliveryOption("a:std", "Служба", Decimal("480.00"), 2, approximate=True)
+    service, _ = make_service(ScriptedProvider("a", ProviderError("x")), store=MemoryStore([old]))
 
-    quote, source = service.get_quote("Москва, 1", "medium")
-    assert source == "cache" and quote.cost == Decimal("480.00") and quote.approximate
+    result = service.get_options("Москва, 1", "medium")
 
-
-def test_failing_api_without_history_uses_fallback_tariff():
-    service, _ = make_service(MockDeliveryProvider(failing=True), MemoryStore())
-
-    quote, source = service.get_quote("Москва, 1", "heavy")
-    assert source == "fallback" and quote.approximate
-    assert quote.cost == FALLBACK_TARIFF["heavy"] and quote.eta_days == FALLBACK_ETA_DAYS
+    assert result.source == "cache" and result.options[0].cost == Decimal("480.00")
+    assert result.options[0].approximate
 
 
-def test_open_breaker_stops_calling_api():
-    provider = MockDeliveryProvider(failing=True)
-    service, clock = make_service(provider, threshold=3)
+def test_all_providers_down_without_history_uses_fallback_tariff():
+    service, _ = make_service(ScriptedProvider("a", ProviderError("x")), store=MemoryStore())
+
+    result = service.get_options("Москва, 1", "heavy")
+
+    assert result.available and result.source == "fallback"
+    only = result.options[0]
+    assert only.approximate and only.cost == FALLBACK_TARIFF["heavy"] and only.eta_days == FALLBACK_ETA_DAYS
+
+
+def test_open_breaker_stops_calling_failing_provider_only():
+    bad = ScriptedProvider("bad", ProviderError("down"))
+    good = ScriptedProvider("good")
+    service, clock = make_service(bad, good, threshold=3)
+
     for i in range(5):
-        service.get_quote(f"Город{i}, 1", "light")
-    assert provider.calls == 3  # после 3 сбоев API больше не дёргаем
+        service.get_options(f"Город{i}, 1", "light")
 
-    clock.now = 31  # пауза прошла — пробный запрос
-    provider.failing = False
-    _, source = service.get_quote("Город9, 1", "light")
-    assert source == "api" and provider.calls == 4
+    assert bad.calls == 3  # после 3 сбоев эту службу больше не дёргаем
+    assert good.calls == 5  # исправная служба работает как обычно
+
+    clock.now = 31  # пауза прошла: пробный запрос к восстановившейся службе
+    bad.result = [option("bad:std")]
+    result = service.get_options("Город9, 1", "light")
+    assert bad.calls == 4 and "bad:std" in [o.id for o in result.options]
+
+
+# ---- Доставка недоступна ----
+def test_all_providers_refuse_means_delivery_unavailable_with_reason():
+    refusal = NotServiceable("Доставка в эту страну недоступна")
+    service, _ = make_service(ScriptedProvider("a", refusal), ScriptedProvider("b", refusal))
+
+    result = service.get_options("Paris", "medium")
+
+    assert result.available is False and result.options == []
+    assert result.reason == "Доставка в эту страну недоступна"
+
+
+def test_refusal_is_not_a_failure_for_circuit_breaker():
+    provider = ScriptedProvider("a", NotServiceable("нет"))
+    service, _ = make_service(provider, threshold=2)
+
+    for i in range(5):
+        service.get_options(f"Город{i}", "light")
+
+    assert provider.calls == 5  # breaker не открылся
+
+
+def test_one_provider_refuses_other_delivers():
+    service, _ = make_service(
+        ScriptedProvider("a", NotServiceable("нет")), ScriptedProvider("b", [option("b:std")]))
+
+    assert service.get_options("Минск", "light").available
+
+
+def test_foreign_country_during_outage_is_unavailable_not_fallback():
+    service, _ = make_service(ScriptedProvider("a", ProviderError("down")), store=MemoryStore())
+
+    result = service.get_options("Париж, Франция", "light")
+
+    assert result.available is False and result.source != "fallback"
+
+
+def test_address_not_found_asks_to_clarify():
+    service, _ = make_service(ScriptedProvider("a", BadAddressError("no")))
+
+    result = service.get_options("Нигдеград", "light")
+
+    assert result.available is False and result.reason == ADDRESS_NOT_FOUND
+
+
+def test_address_not_found_does_not_open_breaker():
+    provider = ScriptedProvider("a", BadAddressError("no"))
+    service, _ = make_service(provider, threshold=2)
+
+    for i in range(5):
+        service.get_options(f"Нигде{i}", "light")
+
+    assert provider.calls == 5

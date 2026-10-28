@@ -37,18 +37,27 @@ def create_order(
         items.append({"product_id": product["id"], "quantity": item.quantity,
                       "unit_price": product["price"]})
 
-    # Доставка не блокирует заказ: сервис всегда отвечает (API -> кэш -> запасной тариф)
-    delivery_cost, approximate = Decimal("0"), False
+    delivery_cost, approximate, service_name = Decimal("0"), False, None
     if body.delivery_type == "delivery":
-        quote, source = delivery.get_quote(
-            body.address, weight_category_for(sum(i["quantity"] for i in items)))
-        delivery_cost = quote.cost
-        approximate = quote.approximate or source == "fallback"
+        result = delivery.get_options(
+            body.address, weight_category_for(sum(i["quantity"] for i in items)), body.lat, body.lon)
+        if not result.available:
+            raise HTTPException(422, result.reason)
+        chosen = result.options[0]  # самый дешёвый, если вариант не указан
+        if body.delivery_option_id:
+            chosen = next((o for o in result.options if o.id == body.delivery_option_id), None)
+            if chosen is None:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Выбранный вариант доставки больше недоступен. Обновите расчёт и выберите заново.")
+        # Цену берём только у сервера: стоимость от клиента не принимается
+        delivery_cost, service_name = chosen.cost, chosen.service
+        approximate = chosen.approximate or result.source == "fallback"
         if approximate:
-            logger.warning("order created with approximate delivery cost (source=%s)", source)
+            logger.warning("order created with approximate delivery cost (source=%s)", result.source)
 
     order_id = orders.create_order(user_id, body.delivery_type, body.address, items,
-                                   delivery_cost, approximate)
+                                   delivery_cost, approximate, service_name)
     return orders.get_order(user_id, order_id)
 
 

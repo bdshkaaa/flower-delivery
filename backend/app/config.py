@@ -6,8 +6,8 @@ from dataclasses import dataclass
 class Settings:
     database_url: str
     log_level: str
-    # Провайдер расчёта доставки: "mock" (по умолчанию) или "yandex"
-    delivery_provider: str
+    # Службы доставки через запятую: courier, yandex, cdek, mock (см. delivery/factory.py)
+    delivery_providers: str
     # Жёсткий таймаут на запрос к внешнему API доставки, секунды (см. README, «Отказоустойчивость»)
     delivery_timeout_seconds: float
     # Кэш котировок (TTL) и Circuit Breaker
@@ -15,6 +15,11 @@ class Settings:
     delivery_breaker_threshold: int
     delivery_breaker_reset_seconds: float
     yandex_delivery_token: str
+    cdek_client_id: str
+    cdek_client_secret: str
+    cdek_base_url: str
+    # Код города отправления в справочнике СДЭК (137 — Санкт-Петербург)
+    cdek_from_code: int
     yandex_delivery_base_url: str
     # Координаты точки отправления (магазина), долгота и широта
     shop_lon: float
@@ -32,11 +37,15 @@ def load_settings() -> Settings:
             "postgresql+psycopg://flower:flower@localhost:5432/flower_delivery",
         ),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
-        delivery_provider=os.environ.get("DELIVERY_PROVIDER", "mock"),
+        delivery_providers=os.environ.get("DELIVERY_PROVIDERS", "courier"),
         delivery_timeout_seconds=float(os.environ.get("DELIVERY_TIMEOUT_SECONDS", "3")),
         delivery_cache_ttl_seconds=float(os.environ.get("DELIVERY_CACHE_TTL_SECONDS", "300")),
         delivery_breaker_threshold=int(os.environ.get("DELIVERY_BREAKER_THRESHOLD", "3")),
         delivery_breaker_reset_seconds=float(os.environ.get("DELIVERY_BREAKER_RESET_SECONDS", "30")),
+        cdek_client_id=os.environ.get("CDEK_CLIENT_ID", ""),
+        cdek_client_secret=os.environ.get("CDEK_CLIENT_SECRET", ""),
+        cdek_base_url=os.environ.get("CDEK_BASE_URL", "https://api.cdek.ru"),
+        cdek_from_code=int(os.environ.get("CDEK_FROM_CODE", "137")),
         yandex_delivery_token=os.environ.get("YANDEX_DELIVERY_TOKEN", ""),
         yandex_delivery_base_url=os.environ.get(
             "YANDEX_DELIVERY_BASE_URL", "https://b2b.taxi.yandex.net"
