@@ -24,6 +24,10 @@ class Settings:
     # Координаты точки отправления (магазина), долгота и широта
     shop_lon: float
     shop_lat: float
+    # Радиус зоны доставки по дорогам от магазина, км (СПб и ближайшая Ленинградская область)
+    delivery_radius_km: float
+    # Подсказки адресов (Photon, на базе OpenStreetMap)
+    photon_base_url: str
     # Секрет для подписи JWT. В продакшене обязательно задать свой через переменную окружения
     jwt_secret: str
     # Срок жизни токена доступа, минуты
@@ -50,8 +54,11 @@ def load_settings() -> Settings:
         yandex_delivery_base_url=os.environ.get(
             "YANDEX_DELIVERY_BASE_URL", "https://b2b.taxi.yandex.net"
         ),
-        shop_lon=float(os.environ.get("SHOP_LON", "30.3141")),
-        shop_lat=float(os.environ.get("SHOP_LAT", "59.9386")),
+        # Магазин: Санкт-Петербург, Полюстровский проспект, 14А (координаты приблизительные)
+        shop_lon=float(os.environ.get("SHOP_LON", "30.4150")),
+        shop_lat=float(os.environ.get("SHOP_LAT", "59.9590")),
+        delivery_radius_km=float(os.environ.get("DELIVERY_RADIUS_KM", "100")),
+        photon_base_url=os.environ.get("PHOTON_BASE_URL", "https://photon.komoot.io"),
         jwt_secret=os.environ.get("JWT_SECRET", "dev-only-secret-change-me-in-production-0123456789"),
         jwt_expire_minutes=int(os.environ.get("JWT_EXPIRE_MINUTES", "1440")),
     )

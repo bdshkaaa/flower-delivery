@@ -23,6 +23,7 @@ from .base import (
     OptionsProvider,
     ProviderError,
 )
+from .area import ServiceArea
 from .breaker import CircuitBreaker
 from .cache import TTLCache
 from .countries import country_of
@@ -67,7 +68,9 @@ class DeliveryService:
         breaker_threshold: int = 3,
         breaker_reset_seconds: float = 30.0,
         breaker_clock=None,
+        area: Optional[ServiceArea] = None,
     ) -> None:
+        self.area = area
         self.providers = providers
         self.cache = cache
         self.store = store
@@ -80,6 +83,11 @@ class DeliveryService:
     def get_options(
         self, address: str, weight_category: str, lat: Optional[float] = None, lon: Optional[float] = None
     ) -> OptionsResult:
+        if self.area is not None:
+            try:
+                self.area.check(address, lat, lon)
+            except NotServiceable as exc:
+                return OptionsResult(False, reason=exc.reason)
         region = region_key(address, lat, lon)
         destination = Destination(region_key=region, address=address, lon=lon, lat=lat)
 
@@ -151,4 +159,5 @@ def get_delivery_service() -> DeliveryService:
         store=QuoteStore(),
         breaker_threshold=settings.delivery_breaker_threshold,
         breaker_reset_seconds=settings.delivery_breaker_reset_seconds,
+        area=ServiceArea(settings.shop_lon, settings.shop_lat, settings.delivery_radius_km, get_geocoder()),
     )
