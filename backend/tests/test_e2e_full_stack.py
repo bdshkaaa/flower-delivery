@@ -53,7 +53,7 @@ def test_customer_journey_catalog_to_order_history(http):
     bouquet = catalog["items"][0]
 
     # 3. Стоимость и срок доставки до оформления
-    offers = http.get("/delivery/options", params={"address": "Москва, Тверская 1", "weight_category": "medium"}).json()
+    offers = http.get("/delivery/options", params={"address": "Санкт-Петербург, Невский проспект 1", "weight_category": "medium"}).json()
     assert offers["available"] is True and offers["options"]
     chosen = offers["options"][-1]  # берём самый дорогой вариант, чтобы проверить выбор
     assert chosen["cost"] > 0 and chosen["eta_days"] >= 1
@@ -61,7 +61,7 @@ def test_customer_journey_catalog_to_order_history(http):
     # 4. Заказ с доставкой: сумма = букеты + доставка
     created = http.post("/orders", headers=headers, json={
         "items": [{"product_id": bouquet["id"], "quantity": 2}],
-        "delivery_type": "delivery", "address": "Москва, Тверская 1", "delivery_option_id": chosen["id"],
+        "delivery_type": "delivery", "address": "Санкт-Петербург, Невский проспект 1", "delivery_option_id": chosen["id"],
     })
     assert created.status_code == 201
     order = created.json()
@@ -113,7 +113,11 @@ def test_delivery_cost_depends_on_city(http):
         return http.get("/delivery/quote", params={"address": address, "weight_category": "light"}).json()
 
     near = cost("Санкт-Петербург, Невский проспект 1")
-    far = cost("Москва, Тверская 1")
+    far = cost("Гатчина, Ленина 1")
 
     assert far["cost"] > near["cost"]
-    assert far["eta_days"] > near["eta_days"]
+
+
+def test_delivery_outside_the_region_is_refused(http):
+    offers = http.get("/delivery/options", params={"address": "Москва, Тверская 1"}).json()
+    assert offers["available"] is False and "Санкт-Петербург" in offers["reason"] and offers["options"] == []

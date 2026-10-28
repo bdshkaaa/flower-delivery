@@ -2,7 +2,8 @@
 
 Правила использования Nominatim: осмысленный User-Agent, не чаще 1 запроса в секунду
 и никакого автодополнения «на каждую букву» (поиск только по явному действию пользователя).
-Поэтому запросы выстроены в очередь с паузой, а результаты кэшируются в памяти.
+Подсказки адресов при наборе даёт Photon (тоже на данных OSM, для автодополнения он и сделан),
+а Nominatim используется только для разового поиска. Поэтому запросы выстроены в очередь с паузой, а результаты кэшируются в памяти.
 Для коммерческой нагрузки нужен свой геокодер или платный сервис."""
 import logging
 import threading
@@ -125,3 +126,90 @@ def get_geocoder() -> NominatimGeocoder:
     from ..config import settings
 
     return NominatimGeocoder(timeout_seconds=max(settings.delivery_timeout_seconds, 5.0))
+
+
+class PhotonSuggester:
+    """Подсказки адресов по мере набора (Photon, данные OpenStreetMap, ключ не нужен).
+    Показывает только места внутри зоны доставки, чтобы нельзя было выбрать адрес,
+    куда магазин не возит."""
+
+    def __init__(
+        self,
+        center: tuple[float, float],
+        radius_km: float,
+        base_url: str = "https://photon.komoot.io",
+        timeout_seconds: float = 3.0,
+        client: Optional[httpx.Client] = None,
+        cache_size: int = 500,
+    ) -> None:
+        from .area import ServiceArea
+
+        self._center = center
+        self._area = ServiceArea(center[0], center[1], radius_km)
+        self._base_url = base_url.rstrip("/")
+        self._timeout = timeout_seconds
+        self._client = client or httpx.Client()
+        self._cache: "OrderedDict[tuple, list[Place]]" = OrderedDict()
+        self._cache_size = cache_size
+
+    @staticmethod
+    def _label(props: dict) -> str:
+        street = props.get("street") or ""
+        house = props.get("housenumber") or ""
+        head = " ".join(x for x in (street, house) if x) or props.get("name") or ""
+        city = props.get("city") or props.get("town") or props.get("village") or props.get("county") or ""
+        parts = [head]
+        if city and city != head:
+            parts.append(city)
+        state = props.get("state") or ""
+        if state and state != city:
+            parts.append(state)
+        return ", ".join(p for p in parts if p)
+
+    def search(self, query: str, limit: int = 5) -> list[Place]:
+        key = (" ".join(query.lower().split()), limit)
+        if key in self._cache:
+            return self._cache[key]
+        # Широта и долгота центра смещают выдачу к магазину; лишние места отсекаем сами
+        # (с запасом запрашиваем больше, чем нужно).
+        params = {"q": query, "limit": min(limit * 3, 20), "lon": self._center[0], "lat": self._center[1]}
+        try:
+            response = self._client.get(
+                f"{self._base_url}/api/", params=params, headers={"User-Agent": USER_AGENT}, timeout=self._timeout
+            )
+            response.raise_for_status()
+            features = response.json().get("features", [])
+        except (httpx.HTTPError, ValueError, AttributeError) as exc:
+            logger.warning("suggest request failed: %s", exc)
+            raise ProviderError(f"suggest unavailable: {exc}") from exc
+
+        places: list[Place] = []
+        for feature in features:
+            try:
+                lon, lat = (float(v) for v in feature["geometry"]["coordinates"][:2])
+                props = feature.get("properties") or {}
+            except (KeyError, TypeError, ValueError):
+                continue  # странный объект пропускаем, остальные подсказки показываем
+            code = (props.get("countrycode") or "").lower() or None
+            label = self._label(props)
+            if not label or (code and code != "ru") or not self._area.contains(lon, lat):
+                continue
+            if any(p.label == label for p in places):
+                continue
+            places.append(Place(lon=lon, lat=lat, label=label, country_code=code))
+            if len(places) >= limit:
+                break
+        self._cache[key] = places
+        if len(self._cache) > self._cache_size:
+            self._cache.popitem(last=False)
+        return places
+
+
+@lru_cache
+def get_suggester() -> PhotonSuggester:
+    from ..config import settings
+
+    return PhotonSuggester(
+        (settings.shop_lon, settings.shop_lat), settings.delivery_radius_km,
+        base_url=settings.photon_base_url, timeout_seconds=max(settings.delivery_timeout_seconds, 4.0),
+    )
