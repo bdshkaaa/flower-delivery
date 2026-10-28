@@ -86,7 +86,7 @@ def test_order_is_created_when_delivery_service_is_down(http):
     # Адрес со словом fallback «роняет» заглушку API доставки
     response = http.post("/orders", headers={"Authorization": f"Bearer {token}"}, json={
         "items": [{"product_id": bouquet["id"], "quantity": 1}],
-        "delivery_type": "delivery", "address": "fallback, 1",
+        "delivery_type": "delivery", "address": "Гатчина, fallback 1",
     })
 
     assert response.status_code == 201
@@ -95,7 +95,7 @@ def test_order_is_created_when_delivery_service_is_down(http):
 
 def test_delivery_to_unserved_place_is_unavailable_and_order_is_rejected(http):
     # «nowhere» — отказ заглушки, «Франция» — отказ курьерской службы магазина
-    address = "nowhere, 1" if MOCK_PROVIDER else "Париж, Франция"
+    address = "Гатчина, nowhere 1" if MOCK_PROVIDER else "Париж, Франция"
     offers = http.get("/delivery/options", params={"address": address}).json()
     assert offers["available"] is False and offers["reason"] and offers["options"] == []
 
