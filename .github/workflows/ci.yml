@@ -13,8 +13,11 @@ jobs:
         uses: actions/checkout@v4
 
       # Поднимает БД, накатывает миграции, собирает backend и запускает все тесты
+      # В CI доставка идёт через детерминированную заглушку: тесты не зависят от интернета
       - name: Run migrations and tests
         run: docker compose run --rm --build tests
+        env:
+          DELIVERY_PROVIDERS: mock
 
       # Unit-тесты фронтенда: встроенный раннер Node, зависимости не нужны
       - name: Frontend unit tests

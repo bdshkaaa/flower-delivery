@@ -20,10 +20,13 @@ import httpx
 from .base import (
     WEIGHT_CATEGORIES,
     BadAddressError,
+    DeliveryOption,
     DeliveryQuote,
     Destination,
+    NotServiceable,
     ProviderError,
 )
+from .countries import country_of
 from .geocoder import NominatimGeocoder
 
 logger = logging.getLogger("app.delivery.yandex")
@@ -34,6 +37,8 @@ _MINUTES_IN_DAY = 24 * 60
 
 
 class YandexDeliveryProvider:
+    id = "yandex"
+
     def __init__(
         self,
         token: str,
@@ -52,6 +57,12 @@ class YandexDeliveryProvider:
         self._timeout = timeout_seconds
         self._geocoder = geocoder or NominatimGeocoder(timeout_seconds=timeout_seconds)
         self._client = client or httpx.Client()
+
+    def get_options(self, destination: Destination, weight_category: str) -> list[DeliveryOption]:
+        if country_of(destination.address) == "OTHER":
+            raise NotServiceable("Яндекс Доставка не доставляет в эту страну")
+        quote = self.get_quote(destination, weight_category)
+        return [DeliveryOption("yandex:courier", "Яндекс Доставка: курьер", quote.cost, quote.eta_days)]
 
     def get_quote(self, destination: Destination, weight_category: str) -> DeliveryQuote:
         if weight_category not in WEIGHT_CATEGORIES:

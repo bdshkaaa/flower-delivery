@@ -7,10 +7,7 @@ import httpx
 import pytest
 
 from app.delivery.base import BadAddressError, Destination, ProviderError
-from app.delivery.breaker import CircuitBreaker
-from app.delivery.cache import TTLCache
 from app.delivery.geocoder import NominatimGeocoder
-from app.delivery.service import DeliveryService
 from app.delivery.yandex import YandexDeliveryProvider
 
 DEST = Destination(region_key="москва", address="Москва, Тверская 1")
@@ -117,21 +114,12 @@ def test_missing_token_is_rejected():
         YandexDeliveryProvider("", "https://x", 0, 0, 1)
 
 
-def test_bad_address_does_not_open_circuit_breaker():
-    prov = provider(lambda r: httpx.Response(400, json={"code": "address_not_found"}))
-    breaker = CircuitBreaker(failure_threshold=2)
-    service = DeliveryService(prov, breaker, TTLCache(60))
-
-    for i in range(5):
-        _, source = service.get_quote(f"Нигде{i}, 1", "light")
-        assert source == "fallback"
-
-    assert breaker.allow_request() is True
-
-
 # ---- Геокодер ----
 def geocoder(handler):
-    return NominatimGeocoder("https://geo.test", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    return NominatimGeocoder(
+        "https://geo.test", client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda seconds: None,
+    )
 
 
 def test_geocoder_returns_lon_lat_and_caches():
@@ -156,3 +144,36 @@ def test_geocoder_empty_result_is_bad_address():
 def test_geocoder_server_error_is_provider_error():
     with pytest.raises(ProviderError):
         geocoder(lambda r: httpx.Response(503)).geocode("Москва")
+
+
+def test_geocoder_search_returns_places_with_country():
+    body = [{"lat": "55.78", "lon": "49.12", "display_name": "Казань, Россия", "address": {"country_code": "ru"}}]
+
+    places = geocoder(lambda r: httpx.Response(200, json=body)).search("Казань")
+
+    assert places[0].label == "Казань, Россия" and places[0].country_code == "ru"
+    assert (places[0].lon, places[0].lat) == (49.12, 55.78)
+
+
+def test_geocoder_reverse_and_empty_point():
+    ok = geocoder(lambda r: httpx.Response(200, json={
+        "lat": "59.9", "lon": "30.3", "display_name": "Невский проспект, СПб", "address": {"country_code": "ru"}}))
+    assert ok.reverse(59.9, 30.3).label.startswith("Невский")
+
+    sea = geocoder(lambda r: httpx.Response(200, json={"error": "Unable to geocode"}))
+    with pytest.raises(BadAddressError):
+        sea.reverse(0.0, 0.0)
+
+
+def test_geocoder_waits_one_second_between_requests():
+    waits = []
+    clock = [0.0]
+    geo = NominatimGeocoder(
+        "https://geo.test", client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=[]))),
+        clock=lambda: clock[0], sleep=waits.append,
+    )
+
+    geo.search("первый запрос")
+    geo.search("второй запрос")  # время не прошло: ждём
+
+    assert waits == [pytest.approx(1.0)]

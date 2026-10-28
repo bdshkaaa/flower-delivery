@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import text
 
 from app.db import engine
-from app.delivery.base import DeliveryQuote
+from app.delivery.base import DeliveryOption
 from app.delivery.store import QuoteStore
 
 pytestmark = pytest.mark.integration
@@ -22,13 +22,15 @@ def clean_quotes():
 
 def test_latest_returns_most_recent_quote():
     store = QuoteStore()
-    store.save("test-spb", "medium", DeliveryQuote(Decimal("400.00"), 1))
-    store.save("test-spb", "medium", DeliveryQuote(Decimal("470.00"), 2))
+    store.save("test-spb", "medium", [DeliveryOption("a:std", "Служба А", Decimal("400.00"), 1)])
+    store.save("test-spb", "medium", [DeliveryOption("a:std", "Служба А", Decimal("470.00"), 2),
+                                      DeliveryOption("b:std", "Служба Б", Decimal("900.00"), 3)])
 
-    latest = store.latest("test-spb", "medium")
-    assert latest.cost == Decimal("470.00") and latest.eta_days == 2
-    assert latest.approximate is True
+    latest = {o.id: o for o in store.latest("test-spb", "medium")}
+    assert latest["a:std"].cost == Decimal("470.00") and latest["a:std"].eta_days == 2
+    assert latest["b:std"].service == "Служба Б"
+    assert all(o.approximate for o in latest.values())
 
 
 def test_latest_is_none_for_unknown_region():
-    assert QuoteStore().latest("test-nowhere", "light") is None
+    assert QuoteStore().latest("test-nowhere", "light") == []

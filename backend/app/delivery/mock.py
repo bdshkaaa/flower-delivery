@@ -2,8 +2,10 @@ from decimal import Decimal
 
 from .base import (
     WEIGHT_CATEGORIES,
+    DeliveryOption,
     DeliveryQuote,
     Destination,
+    NotServiceable,
     ProviderError,
 )
 
@@ -21,6 +23,8 @@ class MockDeliveryProvider:
     во-вторых, заглушку можно «уронить» (failing=True) и проверить поведение
     при недоступности API — кэш, Circuit Breaker, fallback."""
 
+    id = "mock"
+
     def __init__(self, failing: bool = False) -> None:
         self.failing = failing
         self.calls = 0
@@ -33,3 +37,10 @@ class MockDeliveryProvider:
         if weight_category not in WEIGHT_CATEGORIES:
             raise ValueError(f"unknown weight category: {weight_category}")
         return DeliveryQuote(cost=_BASE_COST[weight_category], eta_days=1)
+
+    def get_options(self, destination: Destination, weight_category: str) -> list[DeliveryOption]:
+        """Для тестов: слово «nowhere» в адресе — доставка невозможна, «fallback» — сбой службы."""
+        if "nowhere" in destination.address.lower():
+            raise NotServiceable("Доставка по этому адресу недоступна")
+        quote = self.get_quote(destination, weight_category)
+        return [DeliveryOption("mock:standard", "Тестовая служба", quote.cost, quote.eta_days)]

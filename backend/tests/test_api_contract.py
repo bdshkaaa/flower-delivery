@@ -2,7 +2,6 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.delivery.breaker import CircuitBreaker
 from app.delivery.cache import TTLCache
 from app.delivery.mock import MockDeliveryProvider
 from app.delivery.service import DeliveryService, get_delivery_service
@@ -15,7 +14,7 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def fresh_delivery_service():
     """Свежий сервис доставки без БД на каждый тест: общий Circuit Breaker не влияет на соседей."""
-    service = DeliveryService(MockDeliveryProvider(), CircuitBreaker(), TTLCache(60))
+    service = DeliveryService([MockDeliveryProvider()], TTLCache(60))
     app.dependency_overrides[get_delivery_service] = lambda: service
     yield
     app.dependency_overrides.pop(get_delivery_service, None)

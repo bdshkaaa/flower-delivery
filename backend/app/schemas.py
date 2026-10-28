@@ -74,6 +74,29 @@ class DeliveryQuoteOut(BaseModel):
     source: Literal["api", "cache", "fallback"]
 
 
+class DeliveryOptionOut(BaseModel):
+    id: str = Field(description="Идентификатор варианта «служба:тариф»; передаётся в POST /orders")
+    service: str
+    cost: Money
+    eta_days: int
+    eta_hours: int | None = Field(default=None, description="Срок в часах для доставки в день заказа")
+    approximate: bool = False
+
+
+class DeliveryOptionsOut(BaseModel):
+    available: bool = Field(description="false — по адресу не доставляет ни одна служба")
+    reason: str | None = Field(default=None, description="Причина, если доставка недоступна")
+    options: list[DeliveryOptionOut]
+    source: Literal["api", "cache", "fallback"]
+
+
+class GeoPlace(BaseModel):
+    label: str
+    lat: float
+    lon: float
+    country_code: str | None = None
+
+
 # ---------- Заказы ----------
 class OrderItemIn(BaseModel):
     product_id: UUID
@@ -84,6 +107,11 @@ class OrderCreate(BaseModel):
     items: list[OrderItemIn] = Field(min_length=1)
     delivery_type: DeliveryType
     address: str | None = Field(default=None, examples=["Санкт-Петербург, Невский пр., 1"])
+    lat: float | None = Field(default=None, ge=-90, le=90, description="Точка на карте, если адрес выбран на карте")
+    lon: float | None = Field(default=None, ge=-180, le=180)
+    delivery_option_id: str | None = Field(
+        default=None, description="Вариант доставки из GET /delivery/options; без него берётся самый дешёвый"
+    )
 
     @model_validator(mode="after")
     def address_required_for_delivery(self):
@@ -107,5 +135,6 @@ class OrderOut(BaseModel):
     address: str | None
     items: list[OrderItemOut]
     delivery_cost: Money
+    delivery_service: str | None = None
     delivery_approximate: bool
     total_price: Money = Field(description="Букеты + доставка")

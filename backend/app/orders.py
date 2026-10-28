@@ -8,7 +8,7 @@ from .db import engine
 
 ORDER_COLUMNS = (
     "id, status, created_at, delivery_type, address, "
-    "delivery_cost, delivery_approximate, total_price"
+    "delivery_cost, delivery_service, delivery_approximate, total_price"
 )
 
 
@@ -19,6 +19,7 @@ def create_order(
     items: list[dict],
     delivery_cost: Decimal,
     delivery_approximate: bool,
+    delivery_service: str | None = None,
 ) -> UUID:
     """Создаёт заказ и его состав одной транзакцией: либо всё, либо ничего.
     items: [{product_id, quantity, unit_price}]"""
@@ -27,11 +28,11 @@ def create_order(
         order_id = conn.execute(
             text(
                 "INSERT INTO orders (user_id, delivery_type, address, total_price, "
-                "delivery_cost, delivery_approximate) "
-                "VALUES (:u, :t, :a, :total, :dc, :da) RETURNING id"
+                "delivery_cost, delivery_approximate, delivery_service) "
+                "VALUES (:u, :t, :a, :total, :dc, :da, :ds) RETURNING id"
             ),
             {"u": user_id, "t": delivery_type, "a": address, "total": goods_total + delivery_cost,
-             "dc": delivery_cost, "da": delivery_approximate},
+             "dc": delivery_cost, "da": delivery_approximate, "ds": delivery_service},
         ).scalar_one()
         for item in items:
             conn.execute(

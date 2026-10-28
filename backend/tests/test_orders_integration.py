@@ -4,7 +4,6 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.delivery.breaker import CircuitBreaker
 from app.delivery.cache import TTLCache
 from app.delivery.mock import MockDeliveryProvider
 from app.delivery.service import DeliveryService, get_delivery_service
@@ -19,7 +18,7 @@ client = TestClient(app)
 def provider():
     """Свежий сервис доставки без БД-хранилища; провайдер можно «уронить» в тесте."""
     mock = MockDeliveryProvider()
-    service = DeliveryService(mock, CircuitBreaker(), TTLCache(60))
+    service = DeliveryService([mock], TTLCache(60))
     app.dependency_overrides[get_delivery_service] = lambda: service
     yield mock
     app.dependency_overrides.pop(get_delivery_service, None)
@@ -126,3 +125,58 @@ def test_order_history_newest_first(headers, product):
     created = [o["created_at"] for o in client.get("/orders", headers=headers).json()]
 
     assert len(created) >= 2 and created == sorted(created, reverse=True)
+
+
+# ---- Выбор варианта доставки и недоступная доставка ----
+from tests.fakes import ScriptedProvider, option  # noqa: E402
+
+
+def _use_providers(*providers):
+    service = DeliveryService(list(providers), TTLCache(60))
+    app.dependency_overrides[get_delivery_service] = lambda: service
+
+
+def _order(headers, product, **extra):
+    body = {"items": [{"product_id": product["id"], "quantity": 1}],
+            "delivery_type": "delivery", "address": "Москва, Тверская 1", **extra}
+    return client.post("/orders", headers=headers, json=body)
+
+
+def test_chosen_delivery_option_is_used_and_service_is_saved(headers, product):
+    _use_providers(ScriptedProvider("a", [option("a:std", "500.00", 3, "Дешёвая служба"),
+                                          option("a:fast", "1200.00", 1, "Быстрая служба")]))
+
+    response = _order(headers, product, delivery_option_id="a:fast")
+
+    assert response.status_code == 201
+    order = response.json()
+    assert order["delivery_cost"] == 1200.0 and order["delivery_service"] == "Быстрая служба"
+    assert order["total_price"] == pytest.approx(product["price"] + 1200.0)
+    assert client.get("/orders", headers=headers).json()[0]["delivery_service"] == "Быстрая служба"
+
+
+def test_without_option_the_cheapest_is_taken(headers, product):
+    _use_providers(ScriptedProvider("a", [option("a:fast", "1200.00", 1), option("a:std", "500.00", 3)]))
+
+    assert _order(headers, product).json()["delivery_cost"] == 500.0
+
+
+def test_unknown_option_is_409(headers, product):
+    _use_providers(ScriptedProvider("a"))
+
+    response = _order(headers, product, delivery_option_id="gone:std")
+
+    assert response.status_code == 409
+
+
+def test_order_to_unavailable_address_is_rejected_but_pickup_still_works(headers, product):
+    _use_providers(MockDeliveryProvider())
+
+    rejected = _order(headers, product, address="nowhere, 1")
+    pickup = client.post("/orders", headers=headers, json={
+        "items": [{"product_id": product["id"], "quantity": 1}], "delivery_type": "pickup"})
+
+    assert rejected.status_code == 422 and "недоступна" in rejected.json()["detail"]
+    assert pickup.status_code == 201
+    # отклонённый заказ не сохранился
+    assert [o["delivery_type"] for o in client.get("/orders", headers=headers).json()] == ["pickup"]
