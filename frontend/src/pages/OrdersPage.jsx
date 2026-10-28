@@ -90,7 +90,9 @@ export default function OrdersPage() {
                 ))}
               </ul>
               <p className="muted">
-                {order.delivery_type === "pickup" ? "Самовывоз" : `Доставка: ${order.address}`}
+                {order.delivery_type === "pickup"
+                  ? "Самовывоз"
+                  : `Доставка${order.delivery_service ? ` (${order.delivery_service})` : ""}: ${order.address}`}
                 {order.delivery_type === "delivery" &&
                   ` · ${formatPrice(order.delivery_cost)}${order.delivery_approximate ? " (предварительно)" : ""}`}
               </p>
