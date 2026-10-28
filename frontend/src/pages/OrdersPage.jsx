@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { useCart } from "../cart.jsx";
-import { formatPrice, orderStatusLabel } from "../labels.js";
+import { formatAddressDetails, formatPhone, formatPrice, orderStatusLabel } from "../labels.js";
 
 const dateFormat = new Intl.DateTimeFormat("ru-RU", { dateStyle: "long", timeStyle: "short" });
 
@@ -96,6 +96,13 @@ export default function OrdersPage() {
                 {order.delivery_type === "delivery" &&
                   ` · ${formatPrice(order.delivery_cost)}${order.delivery_approximate ? " (предварительно)" : ""}`}
               </p>
+              {order.delivery_type === "delivery" && (
+                <p className="muted">
+                  {[formatAddressDetails(order), order.recipient_name && `получатель ${order.recipient_name}`,
+                    order.recipient_phone && formatPhone(order.recipient_phone)].filter(Boolean).join(" · ")}
+                  {order.courier_comment && ` · «${order.courier_comment}»`}
+                </p>
+              )}
               <p className="order-total">Итого: {formatPrice(order.total_price)}</p>
             </li>
           ))}
