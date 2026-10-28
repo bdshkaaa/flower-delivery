@@ -1,130 +1,144 @@
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api.js";
-import MapPicker from "./MapPicker.jsx";
 
-// Адрес можно ввести текстом (с поиском по карте) или выбрать точку на карте.
+const MIN_CHARS = 3;
+const PAUSE_MS = 350; // ждём паузу в наборе, чтобы не спрашивать подсказки на каждую букву
+
+// Поле адреса с подсказками: пока человек печатает, под полем раскрывается список адресов
+// (только в зоне доставки). Выбранная подсказка даёт точные координаты.
 // value: { address, lat, lon }; lat и lon пустые, пока адрес введён вручную.
 export default function AddressPicker({ value, onChange }) {
-  const [mode, setMode] = useState("text");
-  const [found, setFound] = useState({ status: "idle", items: [] });
-  const [mapState, setMapState] = useState({ status: "idle", message: "" });
+  const listId = useId();
+  const timer = useRef(null);
+  const request = useRef(null);
+  const [items, setItems] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const [status, setStatus] = useState("idle"); // idle | loading | ok | error
 
-  const hasPoint = value.lat != null && value.lon != null;
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current);
+      request.current?.abort();
+    },
+    []
+  );
 
-  function typeAddress(e) {
-    // ручной ввод сбрасывает ранее выбранную точку: цена считается по тексту
+  function close() {
+    setOpen(false);
+    setActive(-1);
+  }
+
+  function schedule(text) {
+    clearTimeout(timer.current);
+    request.current?.abort();
+    if (text.trim().length < MIN_CHARS) {
+      setItems([]);
+      setStatus("idle");
+      close();
+      return;
+    }
+    setStatus("loading");
+    timer.current = setTimeout(async () => {
+      const controller = new AbortController();
+      request.current = controller;
+      try {
+        const found = await api(`/geo/search?${new URLSearchParams({ q: text.trim(), limit: "5" })}`, {
+          signal: controller.signal,
+        });
+        setItems(found);
+        setStatus("ok");
+        setOpen(true);
+        setActive(-1);
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        setItems([]);
+        setStatus("error");
+        close();
+      }
+    }, PAUSE_MS);
+  }
+
+  function type(e) {
+    // ручной ввод сбрасывает выбранную подсказку: дальше адрес считается по тексту
     onChange({ address: e.target.value, lat: null, lon: null });
-    setFound({ status: "idle", items: [] });
+    schedule(e.target.value);
   }
 
-  async function search() {
-    const query = value.address.trim();
-    if (query.length < 3) return;
-    setFound({ status: "loading", items: [] });
-    try {
-      const items = await api(`/geo/search?${new URLSearchParams({ q: query, limit: "5" })}`);
-      setFound({ status: "ok", items });
-    } catch (err) {
-      setFound({ status: "error", items: [], message: err.message });
+  function choose(item) {
+    clearTimeout(timer.current);
+    request.current?.abort();
+    onChange({ address: item.label, lat: item.lat, lon: item.lon });
+    setItems([]);
+    setStatus("idle");
+    close();
+  }
+
+  function keys(e) {
+    if (!open || items.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActive((i) => (i + 1) % items.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((i) => (i <= 0 ? items.length - 1 : i - 1));
+    } else if (e.key === "Enter" && active >= 0) {
+      e.preventDefault();
+      choose(items[active]);
+    } else if (e.key === "Escape") {
+      close();
     }
   }
 
-  async function pickOnMap({ lat, lon }) {
-    // сразу показываем маркер, адрес подставится после ответа сервера
-    onChange({ address: value.address, lat, lon });
-    setMapState({ status: "loading", message: "" });
-    try {
-      const place = await api(`/geo/reverse?${new URLSearchParams({ lat, lon })}`);
-      onChange({ address: place.label, lat: place.lat, lon: place.lon });
-      setMapState({ status: "idle", message: "" });
-    } catch (err) {
-      setMapState({ status: "error", message: err.message });
-      onChange({ address: "", lat: null, lon: null });
-    }
-  }
+  const showList = open && items.length > 0;
 
   return (
-    <div className="address-picker">
-      <div className="mode-tabs" role="tablist" aria-label="Способ выбора адреса">
-        {[
-          ["text", "Ввести адрес"],
-          ["map", "Выбрать на карте"],
-        ].map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={mode === id}
-            className={mode === id ? "mode-tab mode-tab-active" : "mode-tab"}
-            onClick={() => setMode(id)}
-          >
-            {id === "map" ? "🗺️ " : "⌨️ "}
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {mode === "text" && (
-        <div className="field">
-          <label htmlFor="address">Адрес доставки</label>
-          <div className="address-row">
-            <input
-              id="address"
-              value={value.address}
-              onChange={typeAddress}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
+    <div className="field address-picker">
+      <label htmlFor="address">Адрес доставки</label>
+      <div className="combo">
+        <input
+          id="address"
+          value={value.address}
+          onChange={type}
+          onKeyDown={keys}
+          onFocus={() => items.length > 0 && setOpen(true)}
+          onBlur={close}
+          placeholder="Санкт-Петербург, Невский проспект 1"
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={showList}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
+        />
+        {showList && (
+          <ul className="suggestions" id={listId} role="listbox" aria-label="Подходящие адреса">
+            {items.map((item, i) => (
+              <li
+                key={`${item.lat},${item.lon}`}
+                id={`${listId}-${i}`}
+                role="option"
+                aria-selected={i === active}
+                className={i === active ? "suggestion suggestion-active" : "suggestion"}
+                // mousedown раньше blur: иначе список закроется до клика
+                onMouseDown={(e) => {
                   e.preventDefault();
-                  search();
-                }
-              }}
-              placeholder="Город, улица, дом"
-              autoComplete="street-address"
-            />
-            <button type="button" className="btn btn-ghost" onClick={search} disabled={value.address.trim().length < 3}>
-              Найти
-            </button>
-          </div>
-          <small>Можно просто ввести адрес или нажать «Найти» и выбрать из списка.</small>
-
-          {found.status === "loading" && <small aria-live="polite">Ищем…</small>}
-          {found.status === "error" && (
-            <small className="text-error" role="alert">
-              {found.message}
-            </small>
-          )}
-          {found.status === "ok" && found.items.length === 0 && <small>Ничего не найдено. Уточните адрес.</small>}
-          {found.items.length > 0 && (
-            <ul className="suggestions" aria-label="Найденные адреса">
-              {found.items.map((item) => (
-                <li key={`${item.lat},${item.lon}`}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onChange({ address: item.label, lat: item.lat, lon: item.lon });
-                      setFound({ status: "idle", items: [] });
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {mode === "map" && (
-        <div className="field">
-          <MapPicker point={hasPoint ? { lat: value.lat, lon: value.lon } : null} onPick={pickOnMap} />
-          <small aria-live="polite">
-            {mapState.status === "loading" && "Определяем адрес…"}
-            {mapState.status === "error" && <span className="text-error">{mapState.message}</span>}
-            {mapState.status === "idle" &&
-              (value.address ? `Выбрано: ${value.address}` : "Нажмите на карту в месте доставки.")}
-          </small>
-        </div>
-      )}
+                  choose(item);
+                }}
+              >
+                {item.label}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <small aria-live="polite">
+        {status === "loading" && "Ищем адреса…"}
+        {status === "ok" && items.length === 0 && "Подходящих адресов нет. Проверьте написание или введите адрес полностью."}
+        {status === "error" && "Подсказки недоступны, введите адрес полностью."}
+        {(status === "idle" || (status === "ok" && items.length > 0)) &&
+          "Начните вводить адрес и выберите его из списка. Доставляем по Санкт-Петербургу и Ленинградской области."}
+      </small>
     </div>
   );
 }
