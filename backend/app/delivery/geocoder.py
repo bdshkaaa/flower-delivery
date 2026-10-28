@@ -29,6 +29,7 @@ class Place:
     lat: float
     label: str = ""
     country_code: Optional[str] = None  # «ru», «by» ... в нижнем регистре, если известен
+    precise: bool = True  # False, если в подсказке ещё нет номера дома: нужно продолжить ввод
 
 
 class NominatimGeocoder:
@@ -196,7 +197,8 @@ class PhotonSuggester:
                 continue
             if any(p.label == label for p in places):
                 continue
-            places.append(Place(lon=lon, lat=lat, label=label, country_code=code))
+            places.append(Place(lon=lon, lat=lat, label=label, country_code=code,
+                                precise=bool(props.get("housenumber"))))
             if len(places) >= limit:
                 break
         self._cache[key] = places
@@ -205,10 +207,86 @@ class PhotonSuggester:
         return places
 
 
+class DadataSuggester:
+    """Подсказки адресов DaData: точные адреса РФ с номерами домов и литерами (бесплатный тариф,
+    нужен токен из личного кабинета dadata.ru). Ограничены Санкт-Петербургом и Ленинградской
+    областью, дополнительно отсекаются по радиусу зоны доставки.
+
+    ВАЖНО: на реальном токене не запускался, только на тестах с подменённой сетью. Формат
+    запроса и ответа (`POST /suggest/address`, `Authorization: Token ...`, `data.geo_lat`)
+    взят по памяти из открытой документации, после получения токена проверьте вручную."""
+
+    URL = "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address"
+    # КЛАДР-коды регионов: Санкт-Петербург и Ленинградская область
+    REGIONS = [{"kladr_id": "7800000000000"}, {"kladr_id": "4700000000000"}]
+
+    def __init__(
+        self,
+        token: str,
+        center: tuple[float, float],
+        radius_km: float,
+        url: str = URL,
+        timeout_seconds: float = 3.0,
+        client: Optional[httpx.Client] = None,
+        cache_size: int = 500,
+    ) -> None:
+        from .area import ServiceArea
+
+        if not token:
+            raise ValueError("DADATA_TOKEN is not set")
+        self._token = token
+        self._url = url
+        self._area = ServiceArea(center[0], center[1], radius_km)
+        self._timeout = timeout_seconds
+        self._client = client or httpx.Client()
+        self._cache: "OrderedDict[tuple, list[Place]]" = OrderedDict()
+        self._cache_size = cache_size
+
+    def search(self, query: str, limit: int = 5) -> list[Place]:
+        key = (" ".join(query.lower().split()), limit)
+        if key in self._cache:
+            return self._cache[key]
+        body = {"query": query, "count": limit, "locations": self.REGIONS, "restrict_value": False}
+        try:
+            response = self._client.post(
+                self._url, json=body, timeout=self._timeout,
+                headers={"Authorization": f"Token {self._token}", "Accept": "application/json",
+                         "User-Agent": USER_AGENT},
+            )
+            response.raise_for_status()
+            suggestions = response.json().get("suggestions", [])
+        except (httpx.HTTPError, ValueError, AttributeError) as exc:
+            logger.warning("dadata request failed: %s", exc)
+            raise ProviderError(f"dadata unavailable: {exc}") from exc
+
+        places: list[Place] = []
+        for item in suggestions:
+            try:
+                data = item.get("data") or {}
+                lat, lon = float(data["geo_lat"]), float(data["geo_lon"])
+                label = str(item["value"])
+            except (KeyError, TypeError, ValueError):
+                continue  # у адреса нет координат: выбрать его нельзя, остальные показываем
+            if not self._area.contains(lon, lat):
+                continue
+            places.append(Place(lon=lon, lat=lat, label=label, country_code="ru",
+                                precise=bool(data.get("house"))))
+        self._cache[key] = places
+        if len(self._cache) > self._cache_size:
+            self._cache.popitem(last=False)
+        return places
+
+
 @lru_cache
-def get_suggester() -> PhotonSuggester:
+def get_suggester():
+    """DaData, если задан DADATA_TOKEN (адреса с номерами домов), иначе бесплатный Photon."""
     from ..config import settings
 
+    if settings.dadata_token:
+        return DadataSuggester(
+            settings.dadata_token, (settings.shop_lon, settings.shop_lat), settings.delivery_radius_km,
+            timeout_seconds=max(settings.delivery_timeout_seconds, 4.0),
+        )
     return PhotonSuggester(
         (settings.shop_lon, settings.shop_lat), settings.delivery_radius_km,
         base_url=settings.photon_base_url, timeout_seconds=max(settings.delivery_timeout_seconds, 4.0),

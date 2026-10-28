@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..delivery.base import ProviderError
-from ..delivery.geocoder import PhotonSuggester, get_suggester
+from ..delivery.geocoder import get_suggester
 from ..schemas import ErrorResponse, GeoPlace
 
 router = APIRouter(tags=["Адреса"], prefix="/geo",
@@ -11,14 +11,14 @@ UNAVAILABLE = "Подсказки адресов временно недосту
 
 
 def _place(p) -> GeoPlace:
-    return GeoPlace(label=p.label, lat=p.lat, lon=p.lon, country_code=p.country_code)
+    return GeoPlace(label=p.label, lat=p.lat, lon=p.lon, country_code=p.country_code, precise=p.precise)
 
 
 @router.get("/search", response_model=list[GeoPlace], summary="Подсказки адресов по мере набора")
 def search(
     q: str = Query(min_length=3, max_length=200, examples=["Невский 1"]),
     limit: int = Query(default=5, ge=1, le=8),
-    suggester: PhotonSuggester = Depends(get_suggester),
+    suggester=Depends(get_suggester),
 ):
     """Подсказки только внутри зоны доставки (Санкт-Петербург и ближайшая Ленинградская область)."""
     try:

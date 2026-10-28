@@ -57,7 +57,8 @@ def create_order(
             logger.warning("order created with approximate delivery cost (source=%s)", result.source)
 
     order_id = orders.create_order(user_id, body.delivery_type, body.address, items,
-                                   delivery_cost, approximate, service_name)
+                                   delivery_cost, approximate, service_name,
+                                   details=body.model_dump(include=set(orders.DETAIL_FIELDS)))
     return orders.get_order(user_id, order_id)
 
 

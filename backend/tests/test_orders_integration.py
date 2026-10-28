@@ -33,6 +33,10 @@ def headers():
     return {"Authorization": f"Bearer {token}"}
 
 
+# Получатель и детали адреса, обязательные для доставки
+DETAILS = {"recipient_name": "Анна", "recipient_phone": "+7 900 123-45-67", "apartment": "12"}
+
+
 @pytest.fixture()
 def product():
     return client.get("/goods", params={"sort": "price_asc"}).json()["items"][0]
@@ -41,7 +45,7 @@ def product():
 def test_create_order_calculates_total_with_delivery(headers, product):
     response = client.post("/orders", headers=headers, json={
         "items": [{"product_id": product["id"], "quantity": 2}],
-        "delivery_type": "delivery", "address": "Москва, Тверская 1",
+        "delivery_type": "delivery", "address": "Москва, Тверская 1", **DETAILS,
     })
 
     assert response.status_code == 201
@@ -57,7 +61,7 @@ def test_order_is_not_blocked_when_delivery_api_fails(headers, product, provider
 
     response = client.post("/orders", headers=headers, json={
         "items": [{"product_id": product["id"], "quantity": 2}],
-        "delivery_type": "delivery", "address": "Казань, Баумана 1",
+        "delivery_type": "delivery", "address": "Казань, Баумана 1", **DETAILS,
     })
 
     assert response.status_code == 201
@@ -138,7 +142,7 @@ def _use_providers(*providers):
 
 def _order(headers, product, **extra):
     body = {"items": [{"product_id": product["id"], "quantity": 1}],
-            "delivery_type": "delivery", "address": "Москва, Тверская 1", **extra}
+            "delivery_type": "delivery", "address": "Москва, Тверская 1", **DETAILS, **extra}
     return client.post("/orders", headers=headers, json=body)
 
 
@@ -180,3 +184,45 @@ def test_order_to_unavailable_address_is_rejected_but_pickup_still_works(headers
     assert pickup.status_code == 201
     # отклонённый заказ не сохранился
     assert [o["delivery_type"] for o in client.get("/orders", headers=headers).json()] == ["pickup"]
+
+
+def test_order_stores_recipient_and_address_details(headers, product):
+    response = _order(headers, product, entrance="2", floor="5", intercom="12К", courier_comment="Позвонить за 10 минут")
+
+    assert response.status_code == 201
+    order = response.json()
+    assert order["recipient_name"] == "Анна" and order["recipient_phone"] == "+79001234567"
+    assert order["apartment"] == "12" and order["entrance"] == "2" and order["floor"] == "5"
+    assert order["intercom"] == "12К" and order["courier_comment"] == "Позвонить за 10 минут"
+    history = client.get("/orders", headers=headers).json()
+    assert history[0]["recipient_phone"] == "+79001234567"
+
+
+def test_private_house_does_not_need_apartment(headers, product):
+    response = _order(headers, product, private_house=True, apartment=None)
+    assert response.status_code == 201
+    assert response.json()["private_house"] is True and response.json()["apartment"] is None
+
+
+@pytest.mark.parametrize("override, field", [
+    ({"recipient_name": ""}, "recipient_name"),
+    ({"recipient_name": "А"}, "recipient_name"),
+    ({"recipient_phone": None}, "recipient_phone"),
+    ({"recipient_phone": "12345"}, "recipient_phone"),
+    ({"apartment": ""}, "apartment"),
+])
+def test_delivery_requires_valid_recipient_and_apartment(headers, product, override, field):
+    response = _order(headers, product, **override)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("phone", ["8 (900) 123-45-67", "+7 900 123 45 67", "79001234567", "9001234567"])
+def test_phone_is_normalized(headers, product, phone):
+    response = _order(headers, product, recipient_phone=phone)
+    assert response.status_code == 201 and response.json()["recipient_phone"] == "+79001234567"
+
+
+def test_pickup_does_not_need_recipient(headers, product):
+    response = client.post("/orders", headers=headers, json={
+        "items": [{"product_id": product["id"], "quantity": 1}], "delivery_type": "pickup"})
+    assert response.status_code == 201

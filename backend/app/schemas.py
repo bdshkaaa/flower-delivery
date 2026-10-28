@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, PlainSerializer, model_validator
+from pydantic import BaseModel, Field, PlainSerializer, field_validator, model_validator
 
 # Деньги в БД хранятся как NUMERIC(10, 2), а в JSON отдаются обычным числом
 Money = Annotated[
@@ -95,6 +95,7 @@ class GeoPlace(BaseModel):
     lat: float
     lon: float
     country_code: str | None = None
+    precise: bool = Field(default=True, description="False: в адресе ещё нет номера дома")
 
 
 # ---------- Заказы ----------
@@ -113,10 +114,45 @@ class OrderCreate(BaseModel):
         default=None, description="Вариант доставки из GET /delivery/options; без него берётся самый дешёвый"
     )
 
+    # Получатель и детали адреса, как в обычных приложениях доставки
+    recipient_name: str | None = Field(default=None, max_length=100, examples=["Анна"])
+    recipient_phone: str | None = Field(default=None, max_length=30, examples=["+7 900 123-45-67"])
+    private_house: bool = Field(default=False, description="Частный дом: квартиру указывать не нужно")
+    apartment: str | None = Field(default=None, max_length=20, examples=["12"])
+    entrance: str | None = Field(default=None, max_length=10, examples=["2"])
+    floor: str | None = Field(default=None, max_length=10, examples=["5"])
+    intercom: str | None = Field(default=None, max_length=20, examples=["12К"])
+    courier_comment: str | None = Field(default=None, max_length=300)
+
+    @field_validator("recipient_name", "apartment", "entrance", "floor", "intercom", "courier_comment")
+    @classmethod
+    def strip_text(cls, value):
+        value = (value or "").strip()
+        return value or None
+
+    @field_validator("recipient_phone")
+    @classmethod
+    def normalize_phone(cls, value):
+        if not (value or "").strip():
+            return None
+        digits = "".join(ch for ch in value if ch.isdigit())
+        if len(digits) == 11 and digits[0] in "78":
+            digits = digits[1:]
+        if len(digits) != 10:
+            raise ValueError("Укажите телефон в формате +7 900 123-45-67")
+        return f"+7{digits}"
+
     @model_validator(mode="after")
-    def address_required_for_delivery(self):
-        if self.delivery_type == "delivery" and not (self.address or "").strip():
-            raise ValueError("Для доставки нужен адрес")
+    def delivery_requires_details(self):
+        if self.delivery_type == "delivery":
+            if not (self.address or "").strip():
+                raise ValueError("Для доставки нужен адрес")
+            if not self.recipient_name or len(self.recipient_name) < 2:
+                raise ValueError("Укажите имя получателя")
+            if not self.recipient_phone:
+                raise ValueError("Укажите телефон получателя")
+            if not self.private_house and not self.apartment:
+                raise ValueError("Укажите квартиру или отметьте «Частный дом»")
         return self
 
 
@@ -133,6 +169,14 @@ class OrderOut(BaseModel):
     created_at: datetime
     delivery_type: DeliveryType
     address: str | None
+    recipient_name: str | None = None
+    recipient_phone: str | None = None
+    private_house: bool = False
+    apartment: str | None = None
+    entrance: str | None = None
+    floor: str | None = None
+    intercom: str | None = None
+    courier_comment: str | None = None
     items: list[OrderItemOut]
     delivery_cost: Money
     delivery_service: str | None = None
