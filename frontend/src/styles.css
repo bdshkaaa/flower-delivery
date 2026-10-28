@@ -241,3 +241,35 @@ body {
   .cart-line-price { grid-column: 2; text-align: left; }
   .header-actions { gap: 10px; font-size: 0.92rem; }
 }
+
+/* Выбор адреса и вариантов доставки */
+.mode-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.mode-tab {
+  flex: 1; padding: 9px 8px; border: 1px solid var(--border); border-radius: 10px; background: #fff;
+  font: inherit; font-weight: 600; font-size: 0.85rem; cursor: pointer;
+}
+.mode-tab-active { border-color: var(--rose); background: var(--rose-soft); color: var(--rose-dark); }
+.address-row { display: flex; gap: 8px; }
+.address-row input { flex: 1; min-width: 0; }
+.address-row .btn { padding: 9px 14px; }
+.suggestions { list-style: none; margin: 8px 0 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.suggestions button {
+  display: block; width: 100%; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--border);
+  background: #fff; text-align: left; font: inherit; font-size: 0.88rem; cursor: pointer;
+}
+.suggestions li:last-child button { border-bottom: 0; }
+.suggestions button:hover, .suggestions button:focus-visible { background: var(--rose-soft); }
+.text-error { color: var(--danger); }
+.map { height: 280px; border-radius: 10px; border: 1px solid var(--border); z-index: 0; }
+.map-pin { font-size: 26px; line-height: 28px; text-align: center; background: none; border: 0; }
+.delivery-options { border: 0; margin: 0 0 8px; padding: 0; min-width: 0; }
+.delivery-options legend { font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; padding: 0; }
+.option {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; cursor: pointer; background: #fff;
+}
+.option-active { border-color: var(--rose); background: var(--rose-soft); }
+.option:focus-within { outline: 2px solid var(--rose); outline-offset: 2px; }
+.option-main { display: flex; flex-direction: column; font-size: 0.9rem; }
+.option-main .muted { font-size: 0.82rem; }
+.option-price { font-weight: 700; white-space: nowrap; }

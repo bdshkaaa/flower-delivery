@@ -1,52 +1,31 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { MAX_QUANTITY, useCart } from "../cart.jsx";
+import AddressPicker from "../components/AddressPicker.jsx";
+import DeliveryOptions from "../components/DeliveryOptions.jsx";
 import ProductImage from "../components/ProductImage.jsx";
-import { formatPrice, pluralDays, weightCategoryFor } from "../labels.js";
+import { formatPrice, weightCategoryFor } from "../labels.js";
 import { navigate } from "../router.js";
-
-// Стоимость доставки запрашиваем у сервера, как только введён адрес
-function useDeliveryQuote(enabled, address, weightCategory) {
-  const [quote, setQuote] = useState({ status: "idle" });
-
-  useEffect(() => {
-    if (!enabled || address.trim().length < 3) {
-      setQuote({ status: "idle" });
-      return;
-    }
-    const controller = new AbortController();
-    setQuote({ status: "loading" });
-    const timer = setTimeout(async () => {
-      try {
-        const params = new URLSearchParams({ address: address.trim(), weight_category: weightCategory });
-        const data = await api(`/delivery/quote?${params}`, { signal: controller.signal });
-        setQuote({ status: "ok", data });
-      } catch (err) {
-        if (err.name !== "AbortError") setQuote({ status: "error" });
-      }
-    }, 500);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [enabled, address, weightCategory]);
-
-  return quote;
-}
 
 export default function CartPage() {
   const { items, count, subtotal, setQuantity, remove, clear, setFlash } = useCart();
   const { user, token } = useAuth();
   const [deliveryType, setDeliveryType] = useState("delivery");
-  const [address, setAddress] = useState("");
+  const [place, setPlace] = useState({ address: "", lat: null, lon: null });
+  const [optionId, setOptionId] = useState(null);
+  const [delivery, setDelivery] = useState({ status: "idle", options: [], selected: null });
+  const [reloadKey, setReloadKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const quote = useDeliveryQuote(deliveryType === "delivery", address, weightCategoryFor(count));
-  const deliveryCost = deliveryType === "delivery" && quote.status === "ok" ? quote.data.cost : 0;
-  const approximate =
-    deliveryType === "delivery" && (quote.status !== "ok" || quote.data.approximate);
+  const weight = weightCategoryFor(count);
+  const chosen = deliveryType === "delivery" ? delivery.selected : null;
+  const deliveryCost = chosen ? chosen.cost : 0;
+  const approximate = Boolean(chosen && (chosen.approximate || delivery.source === "fallback"));
+  // заказ с доставкой нельзя оформить, пока нет доступного варианта
+  const deliveryBlocked =
+    deliveryType === "delivery" && (!chosen || delivery.status === "loading" || delivery.available === false);
 
   if (items.length === 0) {
     return (
@@ -63,12 +42,16 @@ export default function CartPage() {
     );
   }
 
-  const addressMissing = deliveryType === "delivery" && address.trim().length < 3;
+  const addressMissing = deliveryType === "delivery" && place.address.trim().length < 3;
 
   async function submit(e) {
     e.preventDefault();
     if (addressMissing) {
       setError("Укажите адрес доставки");
+      return;
+    }
+    if (deliveryBlocked) {
+      setError("Выберите доступный вариант доставки или самовывоз");
       return;
     }
     setSubmitting(true);
@@ -80,7 +63,10 @@ export default function CartPage() {
         body: {
           items: items.map((i) => ({ product_id: i.id, quantity: i.quantity })),
           delivery_type: deliveryType,
-          address: deliveryType === "delivery" ? address.trim() : null,
+          address: deliveryType === "delivery" ? place.address.trim() : null,
+          lat: deliveryType === "delivery" ? place.lat : null,
+          lon: deliveryType === "delivery" ? place.lon : null,
+          delivery_option_id: chosen ? chosen.id : null,
         },
       });
       clear();
@@ -88,6 +74,8 @@ export default function CartPage() {
       navigate("/orders");
     } catch (err) {
       setError(err.status === 401 ? "Сессия истекла. Войдите в аккаунт заново." : err.message);
+      // вариант мог пропасть или цена измениться: обновляем расчёт
+      if (err.status === 409 || err.status === 422) setReloadKey((k) => k + 1);
     } finally {
       setSubmitting(false);
     }
@@ -148,23 +136,17 @@ export default function CartPage() {
           </div>
 
           {deliveryType === "delivery" && (
-            <div className="field">
-              <label htmlFor="address">Адрес доставки</label>
-              <input
-                id="address"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Город, улица, дом"
-                autoComplete="street-address"
+            <>
+              <AddressPicker value={place} onChange={setPlace} />
+              <DeliveryOptions
+                place={place}
+                weightCategory={weight}
+                selectedId={optionId}
+                onSelect={setOptionId}
+                onState={setDelivery}
+                reloadKey={reloadKey}
               />
-              <small className="quote-line" aria-live="polite">
-                {quote.status === "loading" && "Считаем стоимость доставки…"}
-                {quote.status === "ok" &&
-                  `Доставка: ${formatPrice(quote.data.cost)}, срок — ${pluralDays(quote.data.eta_days)}`}
-                {quote.status === "error" && "Не удалось рассчитать доставку. Заказ можно оформить, стоимость уточним."}
-                {quote.status === "idle" && "Введите адрес, чтобы увидеть стоимость и срок."}
-              </small>
-            </div>
+            </>
           )}
 
           <dl className="totals">
@@ -174,19 +156,13 @@ export default function CartPage() {
             </div>
             <div>
               <dt>Доставка</dt>
-              <dd>{deliveryType === "pickup" ? "Бесплатно" : quote.status === "ok" ? formatPrice(deliveryCost) : "—"}</dd>
+              <dd>{deliveryType === "pickup" ? "Бесплатно" : chosen ? formatPrice(deliveryCost) : "—"}</dd>
             </div>
             <div className="totals-sum">
               <dt>Итого{approximate ? " (предварительно)" : ""}</dt>
               <dd>{formatPrice(subtotal + deliveryCost)}</dd>
             </div>
           </dl>
-
-          {approximate && quote.status === "ok" && (
-            <p className="hint">
-              Стоимость доставки предварительная: сервис расчёта сейчас недоступен. Мы уточним её после оформления.
-            </p>
-          )}
 
           {error && (
             <p className="error" role="alert">
@@ -195,7 +171,7 @@ export default function CartPage() {
           )}
 
           {user ? (
-            <button className="btn btn-primary btn-block" disabled={submitting}>
+            <button className="btn btn-primary btn-block" disabled={submitting || deliveryBlocked}>
               {submitting ? "Оформляем…" : "Оформить заказ"}
             </button>
           ) : (

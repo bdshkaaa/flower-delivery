@@ -45,3 +45,9 @@ export function pluralDays(n) {
 export function orderStatusLabel(status) {
   return { created: "Создан", paid: "Оплачен", delivered: "Доставлен", cancelled: "Отменён" }[status] ?? status;
 }
+
+// Срок доставки: «за 3 часа» для доставки в день заказа, иначе «2 дня»
+export function formatEta(option) {
+  if (option.eta_hours) return `за ${option.eta_hours} ч.`;
+  return pluralDays(option.eta_days);
+}
