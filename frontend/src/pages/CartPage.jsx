@@ -5,7 +5,8 @@ import { MAX_QUANTITY, useCart } from "../cart.jsx";
 import AddressPicker from "../components/AddressPicker.jsx";
 import DeliveryOptions from "../components/DeliveryOptions.jsx";
 import ProductImage from "../components/ProductImage.jsx";
-import { formatPrice, weightCategoryFor } from "../labels.js";
+import RecipientDetails from "../components/RecipientDetails.jsx";
+import { formatPrice, normalizePhone, validateRecipient, weightCategoryFor } from "../labels.js";
 import { navigate } from "../router.js";
 
 export default function CartPage() {
@@ -13,6 +14,10 @@ export default function CartPage() {
   const { user, token } = useAuth();
   const [deliveryType, setDeliveryType] = useState("delivery");
   const [place, setPlace] = useState({ address: "", lat: null, lon: null });
+  const [details, setDetails] = useState({
+    name: user?.name ?? "", phone: "", privateHouse: false, apartment: "", entrance: "", floor: "", intercom: "", comment: "",
+  });
+  const [detailErrors, setDetailErrors] = useState({});
   const [optionId, setOptionId] = useState(null);
   const [delivery, setDelivery] = useState({ status: "idle", options: [], selected: null });
   const [reloadKey, setReloadKey] = useState(0);
@@ -54,6 +59,14 @@ export default function CartPage() {
       setError("Выберите доступный вариант доставки или самовывоз");
       return;
     }
+    if (deliveryType === "delivery") {
+      const problems = validateRecipient(details);
+      setDetailErrors(problems);
+      if (Object.keys(problems).length > 0) {
+        setError("Заполните данные получателя");
+        return;
+      }
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -67,6 +80,18 @@ export default function CartPage() {
           lat: deliveryType === "delivery" ? place.lat : null,
           lon: deliveryType === "delivery" ? place.lon : null,
           delivery_option_id: chosen ? chosen.id : null,
+          ...(deliveryType === "delivery"
+            ? {
+                recipient_name: details.name.trim(),
+                recipient_phone: normalizePhone(details.phone),
+                private_house: details.privateHouse,
+                apartment: details.privateHouse ? null : details.apartment.trim(),
+                entrance: details.entrance.trim() || null,
+                floor: details.floor.trim() || null,
+                intercom: details.intercom.trim() || null,
+                courier_comment: details.comment.trim() || null,
+              }
+            : {}),
         },
       });
       clear();
@@ -145,6 +170,15 @@ export default function CartPage() {
                 onSelect={setOptionId}
                 onState={setDelivery}
                 reloadKey={reloadKey}
+              />
+              <RecipientDetails
+                details={details}
+                onChange={(next) => {
+                  setDetails(next);
+                  setDetailErrors({}); // ошибки показываются только после попытки отправить форму
+                  setError("");
+                }}
+                errors={detailErrors}
               />
             </>
           )}

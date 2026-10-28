@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { formatEta, formatPrice } from "../labels.js";
+import { formatEta, formatPrice, splitService } from "../labels.js";
 
 // Запрашивает у сервера варианты доставки всех служб и даёт выбрать один.
 // onState получает { status, available, options, selected } для расчёта итога и блокировки кнопки.
@@ -44,6 +44,15 @@ export default function DeliveryOptions({ place, weightCategory, selectedId, onS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, selected?.id]);
 
+  // варианты по службам: службы по возрастанию самой дешёвой цены
+  const groups = [];
+  for (const option of options) {
+    const { group } = splitService(option.service);
+    const found = groups.find((g) => g.group === group);
+    if (found) found.items.push(option);
+    else groups.push({ group, items: [option] });
+  }
+
   if (state.status === "idle") {
     return <p className="quote-line">Введите адрес или выберите точку на карте, чтобы увидеть варианты доставки.</p>;
   }
@@ -63,25 +72,30 @@ export default function DeliveryOptions({ place, weightCategory, selectedId, onS
 
   return (
     <fieldset className="delivery-options" aria-busy={state.status === "loading"}>
-      <legend>Варианты доставки</legend>
-      {options.map((option) => (
-        <label key={option.id} className={option.id === selected?.id ? "option option-active" : "option"}>
-          <input
-            type="radio"
-            name="delivery_option"
-            value={option.id}
-            checked={option.id === selected?.id}
-            onChange={() => onSelect(option.id)}
-          />
-          <span className="option-main">
-            <strong>{option.service}</strong>
-            <span className="muted">
-              {formatEta(option)}
-              {option.approximate && " · предварительно"}
-            </span>
-          </span>
-          <span className="option-price">{formatPrice(option.cost)}</span>
-        </label>
+      <legend>Служба доставки</legend>
+      {groups.map(({ group, items }) => (
+        <div key={group} className="service-group" role="group" aria-label={group}>
+          <p className="service-name">{group}</p>
+          {items.map((option) => (
+            <label key={option.id} className={option.id === selected?.id ? "option option-active" : "option"}>
+              <input
+                type="radio"
+                name="delivery_option"
+                value={option.id}
+                checked={option.id === selected?.id}
+                onChange={() => onSelect(option.id)}
+              />
+              <span className="option-main">
+                <strong>{splitService(option.service).tariff || "Доставка"}</strong>
+                <span className="muted">
+                  {formatEta(option)}
+                  {option.approximate && " · предварительно"}
+                </span>
+              </span>
+              <span className="option-price">{formatPrice(option.cost)}</span>
+            </label>
+          ))}
+        </div>
       ))}
       {state.source === "fallback" && (
         <p className="hint">Службы доставки сейчас недоступны, показана предварительная стоимость. Мы уточним её после оформления.</p>

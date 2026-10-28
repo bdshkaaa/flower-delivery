@@ -51,3 +51,48 @@ export function formatEta(option) {
   if (option.eta_hours) return `за ${option.eta_hours} ч.`;
   return pluralDays(option.eta_days);
 }
+
+// ---- Получатель и детали адреса ----
+
+// «8 (900) 123-45-67», «+7 900 123 45 67», «9001234567» -> «+79001234567»; null, если номер неверный
+export function normalizePhone(value) {
+  let digits = String(value ?? "").replace(/\D/g, "");
+  if (digits.length === 11 && (digits[0] === "7" || digits[0] === "8")) digits = digits.slice(1);
+  return digits.length === 10 ? `+7${digits}` : null;
+}
+
+// Показывает номер как «+7 900 123-45-67»
+export function formatPhone(value) {
+  const phone = normalizePhone(value);
+  if (!phone) return String(value ?? "");
+  const d = phone.slice(2);
+  return `+7 ${d.slice(0, 3)} ${d.slice(3, 6)}-${d.slice(6, 8)}-${d.slice(8)}`;
+}
+
+// Ошибки формы получателя: { поле: сообщение }. Пустой объект — всё верно.
+export function validateRecipient({ name, phone, privateHouse, apartment }) {
+  const errors = {};
+  if (String(name ?? "").trim().length < 2) errors.name = "Укажите имя получателя";
+  if (!normalizePhone(phone)) errors.phone = "Укажите телефон в формате +7 900 123-45-67";
+  if (!privateHouse && !String(apartment ?? "").trim()) errors.apartment = "Укажите квартиру или отметьте «Частный дом»";
+  return errors;
+}
+
+// «кв. 12, подъезд 2, этаж 5, домофон 12К» для истории заказов
+export function formatAddressDetails(order) {
+  const parts = [];
+  if (order.private_house) parts.push("частный дом");
+  else if (order.apartment) parts.push(`кв. ${order.apartment}`);
+  if (order.entrance) parts.push(`подъезд ${order.entrance}`);
+  if (order.floor) parts.push(`этаж ${order.floor}`);
+  if (order.intercom) parts.push(`домофон ${order.intercom}`);
+  return parts.join(", ");
+}
+
+// Название службы и тариф из «Курьер магазина: экспресс (за 3 часа)»
+export function splitService(service) {
+  const i = service.indexOf(": ");
+  if (i < 0) return { group: service, tariff: "" };
+  const tariff = service.slice(i + 2);
+  return { group: service.slice(0, i), tariff: tariff.charAt(0).toUpperCase() + tariff.slice(1) };
+}

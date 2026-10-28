@@ -68,6 +68,15 @@ export default function AddressPicker({ value, onChange }) {
   function choose(item) {
     clearTimeout(timer.current);
     request.current?.abort();
+    if (item.precise === false) {
+      // в подсказке ещё нет номера дома: подставляем улицу и сразу показываем дома на ней
+      const street = `${item.label}, `;
+      onChange({ address: street, lat: null, lon: null });
+      setItems([]);
+      close();
+      schedule(street);
+      return;
+    }
     onChange({ address: item.label, lat: item.lat, lon: item.lon });
     setItems([]);
     setStatus("idle");
@@ -137,7 +146,7 @@ export default function AddressPicker({ value, onChange }) {
         {status === "ok" && items.length === 0 && "Подходящих адресов нет. Проверьте написание или введите адрес полностью."}
         {status === "error" && "Подсказки недоступны, введите адрес полностью."}
         {(status === "idle" || (status === "ok" && items.length > 0)) &&
-          "Начните вводить адрес и выберите его из списка. Доставляем по Санкт-Петербургу и Ленинградской области."}
+          "Введите улицу и дом, затем выберите адрес из списка. Доставляем по Санкт-Петербургу и Ленинградской области."}
       </small>
     </div>
   );
