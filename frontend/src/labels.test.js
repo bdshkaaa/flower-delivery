@@ -28,7 +28,10 @@ test("склонение дней", () => {
 });
 
 test("неизвестный статус заказа показывается как есть", () => {
-  assert.equal(orderStatusLabel("created"), "Создан");
+  assert.equal(orderStatusLabel("created"), "Ожидает оплаты");
+  assert.equal(orderStatusLabel("assembling"), "Собирается");
+  assert.equal(orderStatusLabel("shipping"), "В пути");
+  assert.equal(orderStatusLabel("ready"), "Готов к выдаче");
   assert.equal(orderStatusLabel("weird"), "weird");
 });
 
