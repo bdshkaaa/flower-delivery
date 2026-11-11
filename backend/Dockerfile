@@ -1,5 +1,10 @@
 FROM python:3.12-slim
 
+# Подтягиваем исправления пакетов ОС, выпущенные после сборки базового образа (Trivy: zlib1g)
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
