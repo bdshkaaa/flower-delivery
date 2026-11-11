@@ -1,15 +1,19 @@
 """Запросы к таблицам orders и order_items."""
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import text
 
+from . import order_tracking
+from .config import settings
 from .db import engine
 
 ORDER_COLUMNS = (
-    "id, status, created_at, delivery_type, address, "
+    "id, number, status, created_at, delivery_type, address, "
     "delivery_cost, delivery_service, delivery_approximate, total_price, "
-    "recipient_name, recipient_phone, private_house, apartment, entrance, floor, intercom, courier_comment"
+    "recipient_name, recipient_phone, private_house, apartment, entrance, floor, intercom, courier_comment, "
+    "paid_at, payment_method, eta_minutes"
 )
 
 DETAIL_FIELDS = (
@@ -27,6 +31,7 @@ def create_order(
     delivery_approximate: bool,
     delivery_service: str | None = None,
     details: dict | None = None,
+    eta_minutes: int | None = None,
 ) -> UUID:
     """Создаёт заказ и его состав одной транзакцией: либо всё, либо ничего.
     items: [{product_id, quantity, unit_price}]"""
@@ -39,13 +44,14 @@ def create_order(
                 "INSERT INTO orders (user_id, delivery_type, address, total_price, "
                 "delivery_cost, delivery_approximate, delivery_service, "
                 "recipient_name, recipient_phone, private_house, apartment, entrance, floor, intercom, "
-                "courier_comment) "
+                "courier_comment, eta_minutes) "
                 "VALUES (:u, :t, :a, :total, :dc, :da, :ds, "
                 ":recipient_name, :recipient_phone, :private_house, :apartment, :entrance, :floor, :intercom, "
-                ":courier_comment) RETURNING id"
+                ":courier_comment, :eta) RETURNING id"
             ),
             {"u": user_id, "t": delivery_type, "a": address, "total": goods_total + delivery_cost,
-             "dc": delivery_cost, "da": delivery_approximate, "ds": delivery_service, **details},
+             "dc": delivery_cost, "da": delivery_approximate, "ds": delivery_service, "eta": eta_minutes,
+             **details},
         ).scalar_one()
         for item in items:
             conn.execute(
@@ -77,13 +83,25 @@ def _attach_items(conn, orders: list[dict]) -> list[dict]:
     return orders
 
 
+def _with_tracking(order: dict) -> dict:
+    """Подставляет текущий этап заказа (собирается, в пути, доставлен) вместо сохранённого статуса «paid»."""
+    tracking = order_tracking.derive(
+        order["status"], order["paid_at"], order["eta_minutes"], order["delivery_type"],
+        datetime.now(timezone.utc), settings.order_time_scale,
+    )
+    order["status"] = tracking.status
+    order["seconds_left"] = tracking.seconds_left
+    order["expected_at"] = tracking.expected_at
+    return order
+
+
 def get_order(user_id: UUID, order_id: UUID) -> dict | None:
     with engine.connect() as conn:
         row = conn.execute(
             text(f"SELECT {ORDER_COLUMNS} FROM orders WHERE id = :id AND user_id = :u"),
             {"id": order_id, "u": user_id},
         ).mappings().first()
-        return _attach_items(conn, [dict(row)])[0] if row else None
+        return _with_tracking(_attach_items(conn, [dict(row)])[0]) if row else None
 
 
 def list_orders(user_id: UUID) -> list[dict]:
@@ -93,4 +111,25 @@ def list_orders(user_id: UUID) -> list[dict]:
             text(f"SELECT {ORDER_COLUMNS} FROM orders WHERE user_id = :u ORDER BY created_at DESC"),
             {"u": user_id},
         ).mappings().all()
-        return _attach_items(conn, [dict(r) for r in rows])
+        return [_with_tracking(o) for o in _attach_items(conn, [dict(r) for r in rows])]
+
+
+def mark_paid(user_id: UUID, order_id: UUID, method: str) -> str:
+    """Помечает заказ оплаченным. Условие status = 'created' делает оплату идемпотентной:
+    при двойном нажатии кнопки (или гонке двух запросов) второй запрос ничего не изменит.
+
+    Возвращает 'paid', 'not_payable' (заказ уже оплачен или отменён) или 'not_found'."""
+    with engine.begin() as conn:
+        updated = conn.execute(
+            text(
+                "UPDATE orders SET status = 'paid', paid_at = now(), payment_method = :m "
+                "WHERE id = :id AND user_id = :u AND status = 'created' RETURNING id"
+            ),
+            {"id": order_id, "u": user_id, "m": method},
+        ).first()
+        if updated:
+            return "paid"
+        exists = conn.execute(
+            text("SELECT 1 FROM orders WHERE id = :id AND user_id = :u"), {"id": order_id, "u": user_id}
+        ).first()
+    return "not_payable" if exists else "not_found"

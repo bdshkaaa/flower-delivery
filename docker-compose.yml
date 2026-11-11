@@ -24,6 +24,8 @@ x-backend-env: &backend-env
   PHOTON_BASE_URL: ${PHOTON_BASE_URL:-https://photon.komoot.io}
   JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-in-production-0123456789}
   JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-1440}
+  # Для демо статусов заказа: ORDER_TIME_SCALE=60 docker compose up (1 реальная минута = 1 час заказа)
+  ORDER_TIME_SCALE: ${ORDER_TIME_SCALE:-1}
 
 services:
   db:
