@@ -163,9 +163,29 @@ class OrderItemOut(BaseModel):
     unit_price: Money
 
 
+class PaymentRequest(BaseModel):
+    """Данные для симулятора оплаты. Номер карты не сохраняется нигде."""
+    method: Literal["card", "sbp"]
+    card_number: str | None = Field(default=None, max_length=30, examples=["4242 4242 4242 4242"])
+    expiry: str | None = Field(default=None, max_length=7, examples=["12/30"])
+    cvc: str | None = Field(default=None, max_length=4, examples=["123"])
+
+
+OrderStatus = Literal["created", "paid", "assembling", "shipping", "delivered", "ready", "cancelled"]
+
+
 class OrderOut(BaseModel):
     id: UUID
-    status: str
+    number: int | None = Field(default=None, description="Короткий номер заказа для покупателя")
+    status: OrderStatus = Field(
+        description="created — ждёт оплаты; assembling — собирается; shipping — курьер в пути; "
+        "delivered — доставлен; ready — готов к выдаче (самовывоз); cancelled — отменён"
+    )
+    paid_at: datetime | None = None
+    payment_method: str | None = None
+    eta_minutes: int | None = Field(default=None, description="Срок доставки (готовности) в минутах с момента оплаты")
+    seconds_left: int | None = Field(default=None, description="Секунд до доставки; для таймера. null, пока не оплачен")
+    expected_at: datetime | None = None
     created_at: datetime
     delivery_type: DeliveryType
     address: str | None

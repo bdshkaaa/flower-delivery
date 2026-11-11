@@ -4,9 +4,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from .. import catalog, orders
+from .. import catalog, order_tracking, orders, payments
 from ..delivery.service import DeliveryService, get_delivery_service
-from ..schemas import ErrorResponse, OrderCreate, OrderOut
+from ..schemas import ErrorResponse, OrderCreate, OrderOut, PaymentRequest
 from .auth import require_user
 
 logger = logging.getLogger("app.orders")
@@ -38,6 +38,7 @@ def create_order(
                       "unit_price": product["price"]})
 
     delivery_cost, approximate, service_name = Decimal("0"), False, None
+    eta_minutes = order_tracking.eta_minutes_for("pickup")
     if body.delivery_type == "delivery":
         result = delivery.get_options(
             body.address, weight_category_for(sum(i["quantity"] for i in items)), body.lat, body.lon)
@@ -53,15 +54,51 @@ def create_order(
         # Цену берём только у сервера: стоимость от клиента не принимается
         delivery_cost, service_name = chosen.cost, chosen.service
         approximate = chosen.approximate or result.source == "fallback"
+        eta_minutes = order_tracking.eta_minutes_for("delivery", chosen.eta_days, chosen.eta_hours)
         if approximate:
             logger.warning("order created with approximate delivery cost (source=%s)", result.source)
 
     order_id = orders.create_order(user_id, body.delivery_type, body.address, items,
                                    delivery_cost, approximate, service_name,
-                                   details=body.model_dump(include=set(orders.DETAIL_FIELDS)))
+                                   details=body.model_dump(include=set(orders.DETAIL_FIELDS)),
+                                   eta_minutes=eta_minutes)
+    logger.info("order %s created (%s, eta %s min)", order_id, body.delivery_type, eta_minutes)
     return orders.get_order(user_id, order_id)
 
 
 @router.get("/orders", response_model=list[OrderOut], summary="История заказов")
 def list_orders(user_id: UUID = Depends(require_user)):
     return orders.list_orders(user_id)
+
+
+@router.get("/orders/{order_id}", response_model=OrderOut, responses={404: {"model": ErrorResponse}},
+            summary="Статус заказа")
+def get_order(order_id: UUID, user_id: UUID = Depends(require_user)):
+    """Заказ с текущим этапом (собирается, в пути, доставлен) и секундами до доставки для таймера."""
+    order = orders.get_order(user_id, order_id)
+    if order is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Заказ не найден")
+    return order
+
+
+@router.post("/orders/{order_id}/pay", response_model=OrderOut,
+             responses={402: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}},
+             summary="Оплатить заказ (симулятор)")
+def pay_order(order_id: UUID, body: PaymentRequest, user_id: UUID = Depends(require_user)):
+    order = orders.get_order(user_id, order_id)
+    if order is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Заказ не найден")
+    if order["status"] != "created":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Этот заказ уже оплачен или отменён")
+
+    try:
+        payments.process(body.method, body.card_number, body.expiry, body.cvc)
+    except payments.PaymentError as err:
+        logger.warning("payment for order %s failed: %s", order_id, err.message)  # данные карты в лог не пишем
+        raise HTTPException(err.status_code, err.message)
+
+    if orders.mark_paid(user_id, order_id, body.method) != "paid":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Этот заказ уже оплачен или отменён")
+    logger.info("order %s paid via %s", order_id, body.method)
+    return orders.get_order(user_id, order_id)

@@ -38,6 +38,8 @@ class Settings:
     jwt_secret: str
     # Срок жизни токена доступа, минуты
     jwt_expire_minutes: int
+    # Ускорение времени для демонстрации статусов заказа: при 60 одна реальная минута идёт как час
+    order_time_scale: float
 
 
 def load_settings() -> Settings:
@@ -71,6 +73,7 @@ def load_settings() -> Settings:
         photon_base_url=os.environ.get("PHOTON_BASE_URL", "https://photon.komoot.io"),
         jwt_secret=os.environ.get("JWT_SECRET", "dev-only-secret-change-me-in-production-0123456789"),
         jwt_expire_minutes=int(os.environ.get("JWT_EXPIRE_MINUTES", "1440")),
+        order_time_scale=float(os.environ.get("ORDER_TIME_SCALE", "1")),
     )
 
 
