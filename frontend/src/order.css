@@ -1,0 +1,64 @@
+/* Оплата, подтверждение и статус заказа. Цвета и радиусы берутся из переменных styles.css */
+
+.pay-row { display: grid; grid-template-columns: 1fr 120px; gap: 12px; }
+.pay-sbp { margin: 0 0 16px; padding: 14px 16px; border-radius: 10px; background: var(--rose-soft); color: var(--rose-dark); }
+.pay-later { display: block; margin-top: 12px; text-align: center; color: var(--muted); font-size: 0.9rem; }
+.test-hint {
+  margin: 0 0 16px; padding: 10px 14px; border: 1px dashed var(--border); border-radius: 10px;
+  color: var(--muted); font-size: 0.85rem; line-height: 1.45;
+}
+
+/* Завершающий экран */
+.done, .status-page { max-width: 640px; margin: 0 auto; }
+.done-hero { text-align: center; margin-bottom: 20px; }
+.done-hero h1 { margin: 12px 0 8px; font-size: 1.8rem; }
+.done-hero .lead { margin-bottom: 0; }
+.check-badge {
+  width: 72px; height: 72px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center;
+  background: #e8f5ee; color: var(--green); font-size: 2.2rem; font-weight: 700;
+  animation: pop 0.35s ease-out;
+}
+@keyframes pop { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.flow-card, .eta-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 20px; margin-bottom: 16px;
+}
+.flow-card h2 { margin: 0 0 12px; font-size: 1.1rem; }
+.flow-card p { margin: 6px 0; }
+.eta-card { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; background: var(--rose-soft); border-color: transparent; }
+.eta-card .btn { margin-top: 10px; }
+.eta-value { font-size: 2.2rem; line-height: 1.2; color: var(--rose-dark); font-variant-numeric: tabular-nums; }
+.eta-final { background: #e8f5ee; color: var(--green); }
+.next-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.done-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 8px; }
+
+/* Статус */
+.status-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.status-head .page-title { margin: 0; }
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline-step { position: relative; display: flex; align-items: center; gap: 14px; padding: 0 0 22px; color: var(--muted); }
+.timeline-step:last-child { padding-bottom: 0; }
+.timeline-step::before {
+  content: ""; position: absolute; left: 13px; top: 28px; bottom: 0; width: 2px; background: var(--border);
+}
+.timeline-step:last-child::before { display: none; }
+.timeline-dot {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  border: 2px solid var(--border); background: var(--surface); font-size: 0.85rem; font-weight: 700; color: #fff;
+}
+.timeline-done { color: var(--text); }
+.timeline-done .timeline-dot { background: var(--green); border-color: var(--green); }
+.timeline-done::before { background: var(--green); }
+.timeline-current { color: var(--text); font-weight: 700; }
+.timeline-current .timeline-dot { border-color: var(--rose); box-shadow: 0 0 0 4px var(--rose-soft); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 8px rgba(252, 228, 236, 0.4); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .check-badge, .timeline-current .timeline-dot { animation: none; }
+}
+@media (max-width: 480px) {
+  .pay-row { grid-template-columns: 1fr; }
+  .eta-value { font-size: 1.8rem; }
+}

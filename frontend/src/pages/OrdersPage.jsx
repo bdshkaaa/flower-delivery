@@ -78,7 +78,10 @@ export default function OrdersPage() {
           {state.orders.map((order) => (
             <li key={order.id} className="order">
               <div className="order-head">
-                <span>{dateFormat.format(new Date(order.created_at))}</span>
+                <span>
+                  {order.number ? `Заказ №${order.number} · ` : ""}
+                  {dateFormat.format(new Date(order.created_at))}
+                </span>
                 <span className="tag">{orderStatusLabel(order.status)}</span>
               </div>
               <ul className="order-items">
@@ -104,6 +107,12 @@ export default function OrdersPage() {
                 </p>
               )}
               <p className="order-total">Итого: {formatPrice(order.total_price)}</p>
+              <a
+                className={order.status === "created" ? "btn btn-primary" : "btn btn-ghost"}
+                href={order.status === "created" ? `#/order/${order.id}/pay` : `#/order/${order.id}`}
+              >
+                {order.status === "created" ? "Оплатить" : "Отследить заказ"}
+              </a>
             </li>
           ))}
         </ul>

@@ -10,7 +10,7 @@ import { formatPrice, normalizePhone, validateRecipient, weightCategoryFor } fro
 import { navigate } from "../router.js";
 
 export default function CartPage() {
-  const { items, count, subtotal, setQuantity, remove, clear, setFlash } = useCart();
+  const { items, count, subtotal, setQuantity, remove, clear } = useCart();
   const { user, token } = useAuth();
   const [deliveryType, setDeliveryType] = useState("delivery");
   const [place, setPlace] = useState({ address: "", lat: null, lon: null });
@@ -95,8 +95,7 @@ export default function CartPage() {
         },
       });
       clear();
-      setFlash(order);
-      navigate("/orders");
+      navigate(`/order/${order.id}/pay`); // дальше оплата, затем экран «Заказ принят»
     } catch (err) {
       setError(err.status === 401 ? "Сессия истекла. Войдите в аккаунт заново." : err.message);
       // вариант мог пропасть или цена измениться: обновляем расчёт

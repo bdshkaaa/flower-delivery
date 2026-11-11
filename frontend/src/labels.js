@@ -43,7 +43,17 @@ export function pluralDays(n) {
 }
 
 export function orderStatusLabel(status) {
-  return { created: "Создан", paid: "Оплачен", delivered: "Доставлен", cancelled: "Отменён" }[status] ?? status;
+  return (
+    {
+      created: "Ожидает оплаты",
+      paid: "Оплачен",
+      assembling: "Собирается",
+      shipping: "В пути",
+      delivered: "Доставлен",
+      ready: "Готов к выдаче",
+      cancelled: "Отменён",
+    }[status] ?? status
+  );
 }
 
 // Срок доставки: «за 3 часа» для доставки в день заказа, иначе «2 дня»
