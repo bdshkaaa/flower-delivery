@@ -81,17 +81,41 @@ def test_customer_journey_catalog_to_order_history(http):
 @pytest.mark.skipif(not MOCK_PROVIDER, reason="сбой доставки имитируется только заглушкой")
 def test_order_is_created_when_delivery_service_is_down(http):
     email = f"e2e-{uuid4().hex[:10]}@example.com"
-    token = http.post("/register", json={"email": email, "password": "secret123", "name": "Ева"}).json()["access_token"]
-    bouquet = http.get("/goods").json()["items"][0]
+    registered = http.post(
+        "/register", json={"email": email, "password": "secret123", "name": "Ева"}
+    )
+    assert registered.status_code == 201, registered.text
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
 
-    # Адрес со словом fallback «роняет» заглушку API доставки
-    response = http.post("/orders", headers={"Authorization": f"Bearer {token}"}, json={
+    catalog = http.get("/goods")
+    assert catalog.status_code == 200, catalog.text
+    bouquet = catalog.json()["items"][0]
+
+    # Адрес со словом fallback «роняет» заглушку API доставки.
+    address = "Гатчина, fallback 1"
+    response = http.post("/orders", headers=headers, json={
         "items": [{"product_id": bouquet["id"], "quantity": 1}],
-        "delivery_type": "delivery", "address": "Гатчина, fallback 1", **DETAILS,
+        "delivery_type": "delivery", "address": address, **DETAILS,
     })
 
-    assert response.status_code == 201
-    assert response.json()["delivery_approximate"] is True
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created["delivery_approximate"] is True
+    assert created["delivery_cost"] > 0
+    assert created["total_price"] == pytest.approx(bouquet["price"] + created["delivery_cost"])
+
+    # Отдельным запросом проверяем, что PostgreSQL сохранил заказ и его состав.
+    history = http.get("/orders", headers=headers)
+    assert history.status_code == 200, history.text
+    saved, = history.json()
+    assert saved["id"] == created["id"]
+    assert saved["address"] == address
+    assert saved["delivery_approximate"] is True
+    assert saved["delivery_cost"] == created["delivery_cost"]
+    assert saved["total_price"] == created["total_price"]
+    item, = saved["items"]
+    assert item["name"] == bouquet["name"]
+    assert item["quantity"] == 1
 
 
 def test_delivery_to_unserved_place_is_unavailable_and_order_is_rejected(http):
