@@ -8,7 +8,7 @@ RUN npm run build
 
 # nginx-unprivileged работает не от root и слушает порт 8080.
 # Актуальная стабильная ветка nginx (1.30) на свежем Alpine.
-FROM nginxinc/nginx-unprivileged:1.30-alpine
+FROM ghcr.io/nginx/nginx-unprivileged:1.30.7-alpine
 
 # Подтягиваем исправления пакетов ОС, выпущенные после сборки базового образа
 USER root
